@@ -11,6 +11,7 @@
 ### Phase 1: Parallel Agent Foundation
 - [ ] Add persistent Playwright profile support to `src/race.ts`.
 - [ ] Add `profiles/` to `.gitignore`.
+- [ ] Tighten results-row action parsing before any multi-agent `--book` run.
 - [ ] Add explicit winner/cancellation logic so only one agent can claim `Order Details`.
 - [ ] Add per-agent logs and screenshots.
 - [ ] Verify `c=2` and `c=4` before attempting `c=10`.
@@ -28,6 +29,7 @@
 
 ## Reference Docs
 - [`MULTI_AGENT_PLAN.md`](/Users/jasricha/Documents/Github_Personal/bear-lake-booker/MULTI_AGENT_PLAN.md)
+- [`MULTI_AGENT_TESTS.md`](/Users/jasricha/Documents/Github_Personal/bear-lake-booker/MULTI_AGENT_TESTS.md)
 - [`GEMINI.md`](/Users/jasricha/Documents/Github_Personal/bear-lake-booker/GEMINI.md)
 
 ## Completed Tasks

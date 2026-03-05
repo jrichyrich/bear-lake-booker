@@ -136,3 +136,5 @@ Recommended defaults:
   - flow stopped at site details as expected.
 - Last verified capture boundary:
   - request capture confirmed `switchBookingAction.do` is the transition into `Order Details`.
+- Dry-run ladder results:
+  - see `MULTI_AGENT_TESTS.md`
