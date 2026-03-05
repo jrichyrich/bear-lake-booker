@@ -11,7 +11,6 @@
 ### Phase 1: Parallel Agent Foundation
 - [ ] Add persistent Playwright profile support to `src/race.ts`.
 - [ ] Add `profiles/` to `.gitignore`.
-- [ ] Tighten results-row action parsing before any multi-agent `--book` run.
 - [ ] Add explicit winner/cancellation logic so only one agent can claim `Order Details`.
 - [ ] Add per-agent logs and screenshots.
 - [ ] Verify `c=2` and `c=4` before attempting `c=10`.
@@ -40,3 +39,4 @@
 - [x] Race flow that reaches site details safely.
 - [x] Safe stop at `Order Details`.
 - [x] Network inspection tooling for request capture.
+- [x] Results-row action parsing fix for multi-agent dry runs.

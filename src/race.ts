@@ -71,6 +71,8 @@ type SiteSelection = {
   actionText: string;
 };
 
+const ALLOWED_ROW_ACTIONS = new Set(['SEE DETAILS', 'ENTER DATE']);
+
 function notifySuccess(siteId: string, agentId: number, stage: SuccessStage) {
   if (isSuccess) {
     return;
@@ -317,7 +319,7 @@ async function openTargetSite(page: Page, preferredSite: string | null): Promise
 
 async function resolveTargetSite(page: Page, preferredSite: string | null): Promise<SiteSelection | null> {
   const candidates = await page.evaluate(
-    ({ targetDate, stayLength }) =>
+    ({ targetDate, stayLength, allowedActions }) =>
       Array.from(document.querySelectorAll<HTMLDivElement>('.br'))
         .map((row) => {
           const siteLink = row.querySelector<HTMLAnchorElement>('.siteListLabel a[href*="campsiteDetails.do"]');
@@ -325,9 +327,13 @@ async function resolveTargetSite(page: Page, preferredSite: string | null): Prom
             return null;
           }
 
-          const actionLink =
-            row.querySelector<HTMLAnchorElement>('.td[class*="sitescompareselectorbtn"] a') ??
-            row.querySelector<HTMLAnchorElement>('.td.status a');
+          const actionLink = row.querySelector<HTMLAnchorElement>('.td[class*="sitescompareselectorbtn"] a');
+          const actionText = actionLink?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+
+          if (!actionLink || !allowedActions.includes(actionText.toUpperCase())) {
+            return null;
+          }
+
           const detailsUrl = new URL(siteLink.href, window.location.href);
 
           detailsUrl.searchParams.set('arvdate', targetDate);
@@ -335,7 +341,7 @@ async function resolveTargetSite(page: Page, preferredSite: string | null): Prom
 
           return {
             site: siteLink.textContent?.trim() ?? '',
-            actionText: actionLink?.textContent?.trim() ?? '',
+            actionText,
             detailsUrl: detailsUrl.toString(),
           };
         })
@@ -343,6 +349,7 @@ async function resolveTargetSite(page: Page, preferredSite: string | null): Prom
     {
       targetDate: TARGET_DATE,
       stayLength: STAY_LENGTH,
+      allowedActions: Array.from(ALLOWED_ROW_ACTIONS),
     },
   );
 

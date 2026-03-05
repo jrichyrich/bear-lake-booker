@@ -101,16 +101,24 @@ Run only after the dry-run ladder is stable.
   - no login redirect or crash,
   - one agent reported action text `Find NextAvail. Date**` while still opening `BH03`.
 
+#### `c=5` after row-action parsing fix
+- Command:
+  - `npm run race -- -d 06/09/2026 -l 6 -o BIRCH -c 5 --dryRun`
+- Result:
+  - passed
+- Observations:
+  - all five agents primed and submitted,
+  - agents opened `BH07`, `BH09`, `BH32`, `BH60`, and `BH07`,
+  - all opened rows reported `See Details`,
+  - `BH03` no longer slipped through from a non-holdable row state,
+  - no login redirect or crash.
+
 ## Current Conclusion
 - The current shared-session, multi-context approach appears stable through `c=5` in `--dryRun`.
-- It is not ready for multi-agent `--book` yet.
-- Before a real `--book` test, tighten row-action parsing so only true booking-capable states are treated as hold candidates.
+- The results-row parsing bug is fixed.
+- It is still not ready for multi-agent `--book` until winner/cancellation logic exists.
 
 ## Immediate Follow-Up
-1. Constrain row parsing in `src/race.ts` to distinguish:
-   - `See Details`
-   - `Enter Date`
-   - `Find Next Avail. Date`
-   - `not available`
-2. Re-run the `c=5` dry test after that fix.
-3. Only then run `c=2 --book`.
+1. Add winner/cancellation logic so only one agent can claim `Order Details`.
+2. Re-run `c=2 --book --headed`.
+3. Only then consider scaling `--book` beyond `c=2`.
