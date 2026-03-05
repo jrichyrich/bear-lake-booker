@@ -62,6 +62,7 @@ const DRY_RUN = values.dryRun!;
 const IS_HEADED = values.headed!;
 
 let isSuccess = false;
+let winningAgentId: number | null = null;
 
 type SuccessStage = 'site-details' | 'order-details';
 
@@ -72,6 +73,7 @@ type SiteSelection = {
 };
 
 const ALLOWED_ROW_ACTIONS = new Set(['SEE DETAILS', 'ENTER DATE']);
+const activeContexts = new Map<number, BrowserContext>();
 
 function notifySuccess(siteId: string, agentId: number, stage: SuccessStage) {
   if (isSuccess) {
@@ -99,6 +101,50 @@ function notifySuccess(siteId: string, agentId: number, stage: SuccessStage) {
   } catch {
     console.warn(`[Agent ${agentId}] iMessage failed.`);
   }
+}
+
+function shouldCancelRemainingAgents(stage: SuccessStage) {
+  return stage === 'order-details' && AUTO_BOOK && !DRY_RUN;
+}
+
+function shouldStopAgent(agentId: number) {
+  return winningAgentId !== null && winningAgentId !== agentId;
+}
+
+async function claimSuccess(agentId: number, siteId: string, stage: SuccessStage) {
+  if (shouldCancelRemainingAgents(stage)) {
+    if (winningAgentId !== null && winningAgentId !== agentId) {
+      return false;
+    }
+
+    if (winningAgentId === null) {
+      winningAgentId = agentId;
+    }
+
+    notifySuccess(siteId, agentId, stage);
+    await cancelRemainingAgents(agentId);
+    return true;
+  }
+
+  notifySuccess(siteId, agentId, stage);
+  return true;
+}
+
+async function cancelRemainingAgents(winnerAgentId: number) {
+  const closePromises: Array<Promise<void>> = [];
+
+  for (const [agentId, context] of activeContexts.entries()) {
+    if (agentId === winnerAgentId) {
+      continue;
+    }
+
+    console.log(`[Agent ${agentId}] Cancelling after winner Agent ${winnerAgentId} reached Order Details.`);
+    closePromises.push(
+      context.close().catch(() => {}),
+    );
+  }
+
+  await Promise.all(closePromises);
 }
 
 async function waitForTargetTime(targetTimeStr: string) {
@@ -146,6 +192,7 @@ async function waitForAvailability(): Promise<SiteAvailability[]> {
 }
 
 async function runAgent(agentId: number, context: BrowserContext, targetSite: string | null) {
+  activeContexts.set(agentId, context);
   const page = await context.newPage();
 
   try {
@@ -163,6 +210,10 @@ async function runAgent(agentId: number, context: BrowserContext, targetSite: st
     await submitSearchForm(page);
     await waitForSearchResults(page);
 
+    if (shouldStopAgent(agentId)) {
+      return;
+    }
+
     const selection = await openTargetSite(page, targetSite);
     if (!selection) {
       console.log(`[Agent ${agentId}] No target site details page could be opened.`);
@@ -175,14 +226,21 @@ async function runAgent(agentId: number, context: BrowserContext, targetSite: st
       if (DRY_RUN) {
         console.log(`[Agent ${agentId}] Dry run enabled. Stopping on site details for ${selection.site}.`);
       }
-      notifySuccess(selection.site, agentId, 'site-details');
+      await claimSuccess(agentId, selection.site, 'site-details');
       await holdBrowserIfNeeded(page, agentId);
+      return;
+    }
+
+    if (shouldStopAgent(agentId)) {
       return;
     }
 
     const booked = await continueToOrderDetails(page);
     if (booked) {
-      notifySuccess(selection.site, agentId, 'order-details');
+      const isWinner = await claimSuccess(agentId, selection.site, 'order-details');
+      if (!isWinner) {
+        return;
+      }
       await holdBrowserIfNeeded(page, agentId);
     } else {
       console.log(`[Agent ${agentId}] Opened ${selection.site}, but did not reach Order Details.`);
@@ -194,8 +252,9 @@ async function runAgent(agentId: number, context: BrowserContext, targetSite: st
       await page.screenshot({ path: `agent-${agentId}-error.png` }).catch(() => {});
     }
   } finally {
-    await page.close();
-    await context.close();
+    activeContexts.delete(agentId);
+    await page.close().catch(() => {});
+    await context.close().catch(() => {});
   }
 }
 
@@ -484,6 +543,9 @@ function buildContextOptions(
 }
 
 async function launchCapture(targetSites: string[]) {
+  activeContexts.clear();
+  winningAgentId = null;
+  isSuccess = false;
   const hasSession = fs.existsSync(SESSION_FILE);
 
   if (!hasSession) {

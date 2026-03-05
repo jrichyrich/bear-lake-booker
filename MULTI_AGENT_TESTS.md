@@ -116,9 +116,22 @@ Run only after the dry-run ladder is stable.
 ## Current Conclusion
 - The current shared-session, multi-context approach appears stable through `c=5` in `--dryRun`.
 - The results-row parsing bug is fixed.
-- It is still not ready for multi-agent `--book` until winner/cancellation logic exists.
+- `c=2 --book` now has a single-winner cancellation path.
+- The next scaling risks are profile isolation and observability, not duplicate cart holds.
 
 ## Immediate Follow-Up
-1. Add winner/cancellation logic so only one agent can claim `Order Details`.
-2. Re-run `c=2 --book --headed`.
-3. Only then consider scaling `--book` beyond `c=2`.
+1. Add persistent per-agent profiles.
+2. Add per-agent logs and screenshots.
+3. Re-run `c=4 --dryRun`, then `c=2 --book --headed`.
+
+## Book Boundary Results
+### 2026-03-05 `c=2 --book`
+- Command:
+  - `npm run race -- -d 06/09/2026 -l 6 -o BIRCH -c 2 --book`
+- Result:
+  - passed
+- Observations:
+  - agent 1 opened `BH07` via `See Details`,
+  - agent 1 reached `Order Details`,
+  - agent 2 opened `BH09` but was cancelled after the winner was declared,
+  - only one success notification fired.

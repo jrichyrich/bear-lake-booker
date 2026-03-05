@@ -121,10 +121,9 @@ Recommended defaults:
 ## Exact Next Steps
 1. Add `profiles/` to `.gitignore`.
 2. Refactor `src/race.ts` to support `launchPersistentContext`.
-3. Add winner cancellation logic.
-4. Add per-agent logs and screenshots.
-5. Test with:
-   - `npm run race -- -d 06/09/2026 -l 6 -o BIRCH -c 2 --dryRun`
+3. Add per-agent logs and screenshots.
+4. Test with:
+   - `npm run race -- -d 06/09/2026 -l 6 -o BIRCH -c 4 --dryRun`
    - `npm run race -- -d 06/09/2026 -l 6 -o BIRCH -c 2 --book --headed`
 
 ## Resume Notes
@@ -138,3 +137,5 @@ Recommended defaults:
   - request capture confirmed `switchBookingAction.do` is the transition into `Order Details`.
 - Dry-run ladder results:
   - see `MULTI_AGENT_TESTS.md`
+- Winner/cancellation status:
+  - `c=2 --book` was verified with a single winning agent reaching `Order Details`
