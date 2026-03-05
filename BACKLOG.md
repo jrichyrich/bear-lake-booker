@@ -1,30 +1,40 @@
 # Bear Lake Booker - Backlog
 
 ## Current Status
-- Initial implementation of `index.ts` (monitoring) and `race.ts` (Playwright race mode).
-- Helper `auth.ts` for session capture.
-- `agent-race.ts` (Experimental CLI-based race mode).
+- `src/index.ts` uses direct HTTP monitoring for exact-date availability.
+- `src/race.ts` can open site details and stop safely at `Order Details`.
+- `src/auth.ts` creates `session.json` for logged-in Playwright runs.
+- `src/inspect.ts` captures ReserveAmerica network traffic for flow analysis.
+- `src/agent-race.ts` has been removed in favor of the unified Playwright race path.
 
-## Backlog Tasks
+## Priority Next Work
+### Phase 1: Parallel Agent Foundation
+- [ ] Add persistent Playwright profile support to `src/race.ts`.
+- [ ] Add `profiles/` to `.gitignore`.
+- [ ] Add explicit winner/cancellation logic so only one agent can claim `Order Details`.
+- [ ] Add per-agent logs and screenshots.
+- [ ] Verify `c=2` and `c=4` before attempting `c=10`.
 
-### Phase 1: Foundation & Reliability
-- [ ] **Initial Git Commit**: Push current codebase to GitHub.
-- [ ] **Unified Configuration**: Move shared constants (PARK_URL, recipients, defaults) to a `src/config.ts`.
-- [ ] **Shared Utilities**: Move notification logic (`osascript`) to a common utility file.
-- [ ] **Site Selection Logic**: Allow specifying target site IDs for auto-booking, not just "any available".
-- [ ] **Better Bot Detection**: Implement more varied User-Agents and human-like interaction patterns (jitter, mouse movements).
+### Phase 2: Reliability
+- [ ] Move shared constants into `src/config.ts`.
+- [ ] Move notification logic into a shared utility.
+- [ ] Add a reset flow for stale persistent profiles.
+- [ ] Add file-based run summaries for successful and failed captures.
 
-### Phase 2: User Experience
-- [ ] **CLI Improvements**: Better progress reporting (e.g., `ora` or simple progress bars).
-- [ ] **Documentation**: Create a comprehensive `README.md` from `GEMINI.md`.
-- [ ] **Login Flow**: Consolidate `auth.ts` and `race.ts` to use a single CLI entry point for session setup.
+### Phase 3: Product Shape
+- [ ] Add a small README derived from `GEMINI.md`.
+- [ ] Decide whether `Order Details` is the permanent automation boundary or just an interim stop.
+- [ ] Add optional non-macOS notifications.
 
-### Phase 3: Advanced Monitoring
-- [ ] **External Notifications**: Support Pushover or Telegram for non-macOS alerts.
-- [ ] **Logging**: Add file-based logging for long-running monitoring sessions.
-- [ ] **Site Stats**: Track how often sites become available and for how long.
+## Reference Docs
+- [`MULTI_AGENT_PLAN.md`](/Users/jasricha/Documents/Github_Personal/bear-lake-booker/MULTI_AGENT_PLAN.md)
+- [`GEMINI.md`](/Users/jasricha/Documents/Github_Personal/bear-lake-booker/GEMINI.md)
 
 ## Completed Tasks
 - [x] Initial `.gitignore` setup.
-- [x] Basic monitoring loop.
-- [x] Playwright-based Race Mode with "Prime and Fire".
+- [x] Direct HTTP availability monitoring.
+- [x] Shared ReserveAmerica search helper.
+- [x] Logged-in session capture via `auth.ts`.
+- [x] Race flow that reaches site details safely.
+- [x] Safe stop at `Order Details`.
+- [x] Network inspection tooling for request capture.

@@ -56,4 +56,5 @@ The project supports two main modes of operation:
 *   **Capture Strategy:** Browser automation assigns form fields directly in the DOM, resolves the site details URL from the results-row link, and uses the preloaded site page to avoid brittle calendar clicks.
 *   **Dry Runs:** `--dryRun` overrides booking behavior and stops at site details even if `--book` is also passed.
 *   **Safe Booking Boundary:** `--book` now means "proceed until `Order Details` is confirmed, then stop." It does not continue into `Review Cart`, `Checkout`, or payment.
+*   **Parallel-Agent Handoff:** The next-step plan for persistent multi-agent capture is documented in `MULTI_AGENT_PLAN.md`.
 *   **Type Safety:** Uses strict TypeScript configuration (see `tsconfig.json`).
