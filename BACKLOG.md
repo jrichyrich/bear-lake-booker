@@ -23,11 +23,13 @@
 ### Phase 3: Product Shape
 - [ ] Add a small README derived from `GEMINI.md`.
 - [ ] Decide whether `Order Details` is the permanent automation boundary or just an interim stop.
+- [ ] Decide whether to implement explicit `bookingMode=multi` after persistent profiles land.
 - [ ] Add optional non-macOS notifications.
 
 ## Reference Docs
 - [`MULTI_AGENT_PLAN.md`](/Users/jasricha/Documents/Github_Personal/bear-lake-booker/MULTI_AGENT_PLAN.md)
 - [`MULTI_AGENT_TESTS.md`](/Users/jasricha/Documents/Github_Personal/bear-lake-booker/MULTI_AGENT_TESTS.md)
+- [`MULTI_HOLD_MODE.md`](/Users/jasricha/Documents/Github_Personal/bear-lake-booker/MULTI_HOLD_MODE.md)
 - [`GEMINI.md`](/Users/jasricha/Documents/Github_Personal/bear-lake-booker/GEMINI.md)
 
 ## Completed Tasks

@@ -139,3 +139,5 @@ Recommended defaults:
   - see `MULTI_AGENT_TESTS.md`
 - Winner/cancellation status:
   - `c=2 --book` was verified with a single winning agent reaching `Order Details`
+- Multi-hold follow-up:
+  - design is documented in `MULTI_HOLD_MODE.md`
