@@ -1,4 +1,8 @@
-import { chromium } from 'playwright';
+import { chromium } from 'playwright-extra';
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+
+chromium.use(StealthPlugin());
 import { resolve } from 'path';
 import { getReserveAmericaCredentials } from './keychain';
 
@@ -30,13 +34,13 @@ async function setupAuth() {
       await page.waitForSelector('input[aria-label="Email"], #AEmailAddress, #email');
       await page.fill('input[aria-label="Email"], #AEmailAddress, #email', credentials.username);
       await page.fill('input[aria-label="Password"], #APassword, #password', credentials.password);
-      
+
       // Look for the sign-in button
       const signInButton = page.locator('button:has-text("Sign In"), input[type="submit"][value="Sign In"]').first();
       if (await signInButton.count() > 0) {
         // Wait for the button to be enabled (some forms might disable it until fields are validated)
         await signInButton.waitFor({ state: 'visible', timeout: 5000 });
-        
+
         // Wait for it to become enabled if it's disabled
         try {
           await page.waitForFunction((btn) => !(btn as HTMLButtonElement).disabled, await signInButton.elementHandle(), { timeout: 5000 });
@@ -45,7 +49,7 @@ async function setupAuth() {
         }
 
         await Promise.all([
-          page.waitForNavigation({ waitUntil: 'networkidle', timeout: 15000 }).catch(() => {}),
+          page.waitForNavigation({ waitUntil: 'networkidle', timeout: 15000 }).catch(() => { }),
           signInButton.click({ force: true }), // Use force if still disabled/covered but logic allows
         ]);
         console.log('Login form submitted.');

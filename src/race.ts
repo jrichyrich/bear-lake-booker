@@ -1,4 +1,9 @@
-import { chromium, type BrowserContext, type Page } from 'playwright';
+import { type BrowserContext, type Page } from 'playwright';
+import { chromium } from 'playwright-extra';
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+
+chromium.use(StealthPlugin());
 import { parseArgs } from 'util';
 import * as fs from 'fs';
 import { searchAvailability, type SiteAvailability } from './reserveamerica';
