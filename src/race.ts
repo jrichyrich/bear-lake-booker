@@ -28,6 +28,8 @@ const { values } = parseArgs({
     profileDir: { type: 'string', default: 'profiles' },
     resetProfiles: { type: 'boolean', default: false },
     screenshotOnWin: { type: 'boolean', default: false },
+    sequential: { type: 'boolean', default: false },
+    sites: { type: 'string' },
     help: { type: 'boolean', short: 'h' },
   },
 });
@@ -55,6 +57,8 @@ Options:
   --profileDir <dir>            Directory for agent persistent profiles [default: profiles]
   --resetProfiles               Delete existing persistent profiles before starting
   --screenshotOnWin             Capture screenshot upon successful booking
+  --sequential                  Book sites one at a time in a single browser
+  --sites <csv>                 Target specific sites (e.g., BH03,BH07,BH09)
   -h, --help                    Show help
   `);
   process.exit(0);
@@ -75,6 +79,8 @@ const PROFILE_MODE = values.profileMode!;
 const PROFILE_DIR = values.profileDir!;
 const RESET_PROFILES = values.resetProfiles!;
 const SCREENSHOT_ON_WIN = values.screenshotOnWin!;
+const SEQUENTIAL = values.sequential!;
+const SITE_ALLOWLIST: string[] = values.sites ? values.sites.split(',').map(s => s.trim().toUpperCase()) : [];
 
 type HoldRecord = {
   agentId: number;
@@ -237,8 +243,9 @@ async function runAgent(agentId: number, context: BrowserContext, targetSite: st
   const page = await context.newPage();
 
   try {
-    console.log(`[Agent ${agentId}] Priming search form...`);
-    await primeSearchForm(page);
+    const label = `[Agent ${agentId}] `;
+    console.log(`${label}Priming search form...`);
+    await primeSearchForm(page, label);
 
     if (TARGET_TIME) {
       await waitForTargetTime(TARGET_TIME);
@@ -255,7 +262,7 @@ async function runAgent(agentId: number, context: BrowserContext, targetSite: st
       return;
     }
 
-    const selection = await openTargetSite(page, targetSite);
+    const selection = await openTargetSite(page, targetSite, label);
     if (!selection) {
       console.log(`[Agent ${agentId}] No target site details page could be opened.`);
       return;
@@ -310,9 +317,38 @@ async function runAgent(agentId: number, context: BrowserContext, targetSite: st
   }
 }
 
-async function primeSearchForm(page: Page) {
-  await page.goto(PARK_URL, { waitUntil: 'domcontentloaded' });
-  await page.waitForSelector('#unifSearchForm');
+const MAX_RETRIES = 3;
+const RETRY_BACKOFF_MS = 5000;
+
+async function isErrorPage(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const text = (document.body.textContent ?? '').toLowerCase();
+    return text.includes('oops') || text.includes('experiencing some difficulties');
+  });
+}
+
+async function primeSearchForm(page: Page, agentLabel = ''): Promise<void> {
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    await page.goto(PARK_URL, { waitUntil: 'domcontentloaded' });
+
+    if (await isErrorPage(page)) {
+      console.log(`${agentLabel}Error page detected. Retry ${attempt}/${MAX_RETRIES} in ${RETRY_BACKOFF_MS / 1000}s...`);
+      await sleep(RETRY_BACKOFF_MS);
+      continue;
+    }
+
+    try {
+      await page.waitForSelector('#unifSearchForm', { timeout: 15000 });
+      break; // Success — form found
+    } catch {
+      if (attempt < MAX_RETRIES) {
+        console.log(`${agentLabel}Search form not found. Retry ${attempt}/${MAX_RETRIES} in ${RETRY_BACKOFF_MS / 1000}s...`);
+        await sleep(RETRY_BACKOFF_MS);
+      } else {
+        throw new Error('Search form not found after all retries.');
+      }
+    }
+  }
 
   await page.evaluate(
     ({ loop, date, length }) => {
@@ -408,24 +444,46 @@ async function waitForSearchResults(page: Page) {
   );
 }
 
-async function openTargetSite(page: Page, preferredSite: string | null): Promise<SiteSelection | null> {
+async function openTargetSite(page: Page, preferredSite: string | null, agentLabel = ''): Promise<SiteSelection | null> {
   const selection = await resolveTargetSite(page, preferredSite);
   if (!selection) {
     return null;
   }
 
-  await page.goto(selection.detailsUrl, { waitUntil: 'domcontentloaded' });
-  await page.waitForFunction(
-    () =>
-      Boolean(document.querySelector('#booksiteform')) ||
-      Boolean(document.querySelector('#arrivaldate')) ||
-      (document.body.textContent ?? '').includes('No suitable availability shown'),
-    {
-      timeout: 15000,
-    },
-  );
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    await page.goto(selection.detailsUrl, { waitUntil: 'domcontentloaded' });
 
-  return selection;
+    if (await isErrorPage(page)) {
+      if (attempt < MAX_RETRIES) {
+        console.log(`${agentLabel}Error page on site details. Retry ${attempt}/${MAX_RETRIES} in 3s...`);
+        await sleep(3000);
+        continue;
+      }
+      console.log(`${agentLabel}Error page persisted after ${MAX_RETRIES} retries for ${selection.site}.`);
+      return null;
+    }
+
+    try {
+      await page.waitForFunction(
+        () =>
+          Boolean(document.querySelector('#booksiteform')) ||
+          Boolean(document.querySelector('#arrivaldate')) ||
+          (document.body.textContent ?? '').includes('No suitable availability shown'),
+        { timeout: 15000 },
+      );
+      return selection;
+    } catch {
+      if (attempt < MAX_RETRIES) {
+        console.log(`${agentLabel}Site details page didn't load. Retry ${attempt}/${MAX_RETRIES} in 3s...`);
+        await sleep(3000);
+      } else {
+        console.log(`${agentLabel}Site details timed out after ${MAX_RETRIES} retries for ${selection.site}.`);
+        return null;
+      }
+    }
+  }
+
+  return null;
 }
 
 async function resolveTargetSite(page: Page, preferredSite: string | null): Promise<SiteSelection | null> {
@@ -690,7 +748,14 @@ async function launchCapture(targetSites: string[]) {
       context = await browser!.newContext(buildContextOptions(browser!, index, hasSession));
     }
 
-    const targetSite = targetSites.length > 0 ? targetSites[index % targetSites.length] ?? null : null;
+    // Smart distribution: assign unique sites to each agent instead of overlapping
+    let targetSite: string | null = null;
+    if (targetSites.length > 0) {
+      // Each agent gets a unique site; extras get null (take whatever is available)
+      if (index < targetSites.length) {
+        targetSite = targetSites[index] ?? null;
+      }
+    }
     const staggerStartupMs = agentId * 200;
 
     const promise = sleep(staggerStartupMs).then(() => runAgent(agentId, context, targetSite));
@@ -716,6 +781,107 @@ async function launchCapture(targetSites: string[]) {
   });
 }
 
+async function runSequentialCapture(targetSites: string[]) {
+  runState.winningAgentId = null;
+  runState.isClosed = false;
+  runState.holds = [];
+  runState.heldSites.clear();
+
+  const hasSession = fs.existsSync(SESSION_FILE);
+  if (!hasSession) {
+    console.warn('WARNING: session.json not found. Capture will run as guest.');
+  } else {
+    console.log('Authentication session loaded.');
+  }
+
+  if (DRY_RUN) {
+    console.log('Dry-run capture is enabled. Will stop on site details.');
+  }
+
+  console.log(`Sequential mode: booking up to ${MAX_HOLDS} site(s) one at a time.`);
+
+  const contextOptions: Parameters<typeof chromium.launch>[0] = { headless: !IS_HEADED };
+  const browser = await chromium.launch(contextOptions);
+  const context = hasSession
+    ? await browser.newContext({ storageState: SESSION_FILE, timezoneId: 'America/Denver' })
+    : await browser.newContext({ timezoneId: 'America/Denver' });
+  const page = await context.newPage();
+  const label = '[Sequential] ';
+
+  try {
+    for (let i = 0; i < targetSites.length; i++) {
+      if (runState.holds.length >= MAX_HOLDS) {
+        console.log(`${label}Max holds (${MAX_HOLDS}) reached. Done.`);
+        break;
+      }
+
+      const site = targetSites[i]!;
+      if (isSiteAlreadyHeld(site)) {
+        continue;
+      }
+
+      console.log(`${label}Attempting site ${site} (${i + 1}/${targetSites.length})...`);
+      await primeSearchForm(page, label);
+      await submitSearchForm(page);
+      await waitForSearchResults(page);
+
+      const selection = await openTargetSite(page, site, label);
+      if (!selection) {
+        console.log(`${label}Could not open ${site}. Trying next.`);
+        continue;
+      }
+
+      if (isSiteAlreadyHeld(selection.site)) {
+        continue;
+      }
+
+      console.log(`${label}Opened site ${selection.site}.`);
+
+      if (!AUTO_BOOK || DRY_RUN) {
+        if (SCREENSHOT_ON_WIN) {
+          await page.screenshot({ path: `logs/seq-${selection.site}-${Date.now()}.png` }).catch(() => { });
+        }
+        await claimSuccess(0, selection.site, 'site-details');
+        continue;
+      }
+
+      const booked = await continueToOrderDetails(page);
+      if (booked) {
+        if (SCREENSHOT_ON_WIN) {
+          await page.screenshot({ path: `logs/seq-${selection.site}-${Date.now()}.png` }).catch(() => { });
+        }
+        await claimSuccess(0, selection.site, 'order-details');
+        console.log(`${label}Held ${selection.site} at Order Details.`);
+      } else {
+        console.log(`${label}Could not reach Order Details for ${selection.site}.`);
+      }
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message.split('\n')[0] : String(error);
+    console.error(`${label}${message}`);
+  }
+
+  if (IS_HEADED && runState.holds.length > 0 && AUTO_BOOK && !DRY_RUN) {
+    console.log(`${label}Browser will stay open until you close it. Proceed to checkout manually.`);
+    await page.waitForEvent('close').catch(() => { });
+  }
+
+  await browser.close().catch(() => { });
+
+  writeRunSummary({
+    timestamp: new Date().toISOString(),
+    targetDate: TARGET_DATE,
+    loop: LOOP,
+    agentCount: 1,
+    bookingMode: BOOKING_MODE,
+    maxHolds: MAX_HOLDS,
+    holds: runState.holds,
+    winningAgent: runState.winningAgentId,
+    winningSite: runState.holds[0]?.site ?? null,
+    status: runState.holds.length > 0 ? 'success' : 'failure',
+  });
+}
+
 async function startRace() {
   console.log('\nBear Lake Booker Hybrid Capture');
 
@@ -730,11 +896,26 @@ async function startRace() {
     return;
   }
 
-  const targetSites = exactMatches.map((site) => site.site);
-  console.log(`Exact-date opening detected for ${TARGET_DATE}: ${targetSites.join(', ')}`);
-  console.log('Launching Playwright capture agents.');
+  let targetSites = exactMatches.map((site) => site.site);
 
-  await launchCapture(targetSites);
+  // Apply allowlist filter if --sites was specified
+  if (SITE_ALLOWLIST.length > 0) {
+    targetSites = targetSites.filter(site => SITE_ALLOWLIST.includes(site.toUpperCase()));
+    if (targetSites.length === 0) {
+      console.log(`None of the requested sites (${SITE_ALLOWLIST.join(', ')}) are available.`);
+      return;
+    }
+    console.log(`Filtered to requested sites: ${targetSites.join(', ')}`);
+  }
+
+  console.log(`Exact-date opening detected for ${TARGET_DATE}: ${targetSites.join(', ')}`);
+
+  if (SEQUENTIAL) {
+    await runSequentialCapture(targetSites);
+  } else {
+    console.log('Launching Playwright capture agents.');
+    await launchCapture(targetSites);
+  }
 }
 
 function sleep(ms: number) {
