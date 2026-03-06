@@ -1,4 +1,5 @@
 import { execSync } from 'child_process';
+import { RECIPIENT } from './config';
 
 const TARGET_DATE = "07/22/2026";
 const STAY_LENGTH = "6";
@@ -9,7 +10,6 @@ const LOOP = "BIRCH";
  */
 function notifySuccess(count: number) {
   const message = `🧪 TEST: Bear Lake Booker found ${count} available slots for ${TARGET_DATE} in ${LOOP} loop!`;
-  const recipient = "richards_jason@me.com";
 
   console.log("🔔 Triggering TEST notifications...");
 
@@ -25,8 +25,8 @@ function notifySuccess(count: number) {
   // 2. iMessage
   try {
     const escapedMsg = message.replace(/"/g, '"');
-    execSync(`osascript -e 'tell application "Messages" to send "${escapedMsg}" to buddy "${recipient}"'`);
-    console.log(`📩 iMessage test sent to ${recipient}`);
+    execSync(`osascript -e 'tell application "Messages" to send "${escapedMsg}" to buddy "${RECIPIENT}"'`);
+    console.log(`📩 iMessage test sent to ${RECIPIENT}`);
   } catch (e) {
     console.warn("⚠️ Failed to send iMessage. Ensure Messages.app is signed in.");
   }

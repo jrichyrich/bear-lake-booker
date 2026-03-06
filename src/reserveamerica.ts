@@ -1,5 +1,4 @@
-export const PARK_URL =
-  'https://utahstateparks.reserveamerica.com/camping/bear-lake-state-park/r/campgroundDetails.do?contractCode=UT&parkId=343061';
+import { PARK_URL } from './config';
 
 const USER_AGENT = 'bear-lake-booker/1.0';
 

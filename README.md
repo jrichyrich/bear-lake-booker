@@ -1,15 +1,14 @@
 # Bear Lake Booker
 
-## Project Overview
 Bear Lake Booker is a TypeScript-based CLI tool designed to automate checking for campsite availability at Bear Lake State Park via the ReserveAmerica reservation system. It provides both low-overhead HTTP monitoring and high-concurrency browser automation for competitive booking.
 
-### Key Technologies
+## Key Technologies
 *   **Runtime:** Node.js
 *   **Language:** TypeScript (strict mode)
 *   **Execution:** `tsx` (TypeScript Execute)
 *   **Automation:** 
     *   **Native Fetch:** Direct HTTP form submission for standard monitoring.
-    *   **Playwright:** Multi-agent browser automation for "Race Mode".
+    *   **Playwright:** Multi-agent persistent browser automation for "Race Mode".
 *   **Notifications:** AppleScript-based iMessage and Desktop notifications.
 *   **Target:** [Bear Lake State Park](https://utahstateparks.reserveamerica.com/camping/bear-lake-state-park/r/campgroundDetails.do?contractCode=UT&parkId=343061)
 
@@ -24,42 +23,29 @@ The project is divided into monitoring and capture phases:
     *   Supports two triggers:
         *   **Hybrid:** Polls via HTTP first, then launches Playwright agents only when an opening is detected.
         *   **Scheduled:** Launches agents at a specific time (e.g., 08:00:00) to compete for newly released sites.
-    *   Launches multiple parallel Playwright agents (concurrency configurable).
+    *   Launches multiple parallel Playwright agents using `launchPersistentContext` isolating cookies, caches, and storage.
     *   Agents navigate directly to site details to bypass slow calendar interactions.
     *   **Safe Boundary:** Stops at `Order Details` confirmed state; never continues to payment or checkout.
 3.  **Authentication (`src/auth.ts`):**
     *   Helper to log in manually and save the session state to `session.json`.
-    *   Required for `race.ts` to operate as a logged-in user.
+    *   Required for `race.ts` to launch automatically logged in.
 4.  **Inspection (`src/inspect.ts`):**
     *   Utility to capture and log ReserveAmerica network traffic for analyzing the reservation flow.
-
-## Project Structure
-*   `src/index.ts`: Entry point for standard HTTP monitoring.
-*   `src/race.ts`: Implementation of multi-agent Playwright booking logic.
-*   `src/reserveamerica.ts`: Shared library for interacting with ReserveAmerica (form building, HTML parsing, loop resolution).
-*   `src/auth.ts`: Session capture utility.
-*   `src/inspect.ts`: Traffic analysis tool.
-*   `src/test-notify.ts`: Simple utility to verify iMessage and Desktop notification connectivity.
-*   `session.json`: (Generated) Stores Playwright storage state (cookies, local storage).
 
 ## Building and Running
 ### Prerequisites
 *   Node.js and npm installed.
-*   Playwright browsers installed: `npx playwright install chromium`
+*   Playwright browsers installed: `npx playwright install`
 *   Logged-in session: `npm run auth` (run this once to create `session.json`)
 
-### Key Commands
+### CLI Commands
 *   **Standard Check:** `npm start -- -d 08/15/2026 -l 3 -o "BIRCH"`
 *   **Continuous Monitoring:** `npm start -- -i 5` (Poll every 5 mins)
-*   **Hybrid Capture:** `npm run race -- -m 5 -c 4` (HTTP poll, then launch 4 agents on hit)
+*   **Hybrid Capture:** `npm run race -- -d 08/15/2026 -m 5 -c 4` (HTTP poll, then launch 4 isolated agents on hit)
 *   **Scheduled Capture:** `npm run race -- -c 10 -t 07:59:59` (Launch 10 agents at exactly 07:59:59)
 *   **Dry-Run Capture:** `npm run race -- -m 5 -c 1 --dryRun --headed` (Open browser but don't hold site)
 *   **Inspect Traffic:** `npm run inspect`
 *   **Verify Types:** `npx tsc --noEmit`
 
-## Development Conventions
-*   **Strict Typing:** Always use strict TypeScript types; avoid `any`.
-*   **CLI Arguments:** Arguments are parsed using `util.parseArgs`. Check `src/race.ts` and `src/index.ts` for supported flags.
-*   **Safe Booking:** The automation boundary is strictly the `Order Details` page. Do not implement automated payment.
-*   **Loop Resolution:** Always resolve the user-friendly loop name (e.g., "BIRCH") to the system's numeric ID before submitting forms.
-*   **Agent Identification:** Parallel agents are indexed (0..N) for logging and screenshot identification.
+## Safe Boundary
+The automation boundary is strictly the `Order Details` page. To avoid catastrophic financial failure-loops and unintended credit card checkouts from unattended scripts, Bear Lake Booker officially drops automation ownership once an `Order Details` hold is confirmed. Users are responsible for paying for their held instances manually.

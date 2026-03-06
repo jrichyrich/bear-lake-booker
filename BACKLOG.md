@@ -9,22 +9,22 @@
 
 ## Priority Next Work
 ### Phase 1: Parallel Agent Foundation
-- [ ] Add persistent Playwright profile support to `src/race.ts`.
-- [ ] Add `profiles/` to `.gitignore`.
-- [ ] Add per-agent logs and screenshots.
-- [ ] Verify `c=2` and `c=4` before attempting `c=10`.
+- [x] Add persistent Playwright profile support to `src/race.ts`.
+- [x] Add `profiles/` to `.gitignore`.
+- [x] Add per-agent logs and screenshots.
+- [x] Verify `c=2` and `c=4` before attempting `c=10`.
 
 ### Phase 2: Reliability
-- [ ] Move shared constants into `src/config.ts`.
-- [ ] Move notification logic into a shared utility.
-- [ ] Add a reset flow for stale persistent profiles.
-- [ ] Add file-based run summaries for successful and failed captures.
+- [x] Move shared constants into `src/config.ts`.
+- [x] Move notification logic into a shared utility.
+- [x] Add a reset flow for stale persistent profiles.
+- [x] Add file-based run summaries for successful and failed captures.
 
 ### Phase 3: Product Shape
-- [ ] Add a small README derived from `GEMINI.md`.
-- [ ] Decide whether `Order Details` is the permanent automation boundary or just an interim stop.
+- [x] Add a small README derived from `GEMINI.md`.
+- [x] Decide whether `Order Details` is the permanent automation boundary or just an interim stop.
 - [ ] Decide whether to implement explicit `bookingMode=multi` after persistent profiles land.
-- [ ] Add optional non-macOS notifications.
+- [x] Add optional non-macOS notifications.
 
 ## Reference Docs
 - [`MULTI_AGENT_PLAN.md`](/Users/jasricha/Documents/Github_Personal/bear-lake-booker/MULTI_AGENT_PLAN.md)

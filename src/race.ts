@@ -1,18 +1,10 @@
 import { chromium, type BrowserContext, type Page } from 'playwright';
 import { parseArgs } from 'util';
-import { execSync } from 'child_process';
 import * as fs from 'fs';
-import { PARK_URL, searchAvailability, type SiteAvailability } from './reserveamerica';
-
-const SESSION_FILE = 'session.json';
-const RECIPIENT = 'richards_jason@me.com';
-
-const USER_AGENTS = [
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Edge/120.0.0.0',
-];
+import { searchAvailability, type SiteAvailability } from './reserveamerica';
+import { PARK_URL, SESSION_FILE, USER_AGENTS } from './config';
+import { notifySuccess, type SuccessStage } from './notify';
+import { writeRunSummary } from './reporter';
 
 const { values } = parseArgs({
   options: {
@@ -25,6 +17,12 @@ const { values } = parseArgs({
     book: { type: 'boolean', short: 'b', default: false },
     dryRun: { type: 'boolean', default: false },
     headed: { type: 'boolean', default: false },
+    bookingMode: { type: 'string', default: 'single' },
+    maxHolds: { type: 'string', default: '1' },
+    profileMode: { type: 'string', default: 'persistent' },
+    profileDir: { type: 'string', default: 'profiles' },
+    resetProfiles: { type: 'boolean', default: false },
+    screenshotOnWin: { type: 'boolean', default: false },
     help: { type: 'boolean', short: 'h' },
   },
 });
@@ -46,6 +44,12 @@ Options:
   -b, --book                    Continue to site Order Details and stop there
   --dryRun                      Open site details only; never continue to Order Details
   --headed                      Run with visible browser
+  --bookingMode <single|multi>  Booking coordination mode [default: single]
+  --maxHolds <number>           Max concurrent holds in multi mode [default: 1]
+  --profileMode <mode>          persistent or ephemeral contexts [default: persistent]
+  --profileDir <dir>            Directory for agent persistent profiles [default: profiles]
+  --resetProfiles               Delete existing persistent profiles before starting
+  --screenshotOnWin             Capture screenshot upon successful booking
   -h, --help                    Show help
   `);
   process.exit(0);
@@ -60,11 +64,37 @@ const MONITOR_INTERVAL_MINS = values.monitorInterval ? parseInt(values.monitorIn
 const AUTO_BOOK = values.book!;
 const DRY_RUN = values.dryRun!;
 const IS_HEADED = values.headed!;
+const BOOKING_MODE = (values.bookingMode === 'multi' ? 'multi' : 'single') as 'single' | 'multi';
+const MAX_HOLDS = parseInt(values.maxHolds!, 10);
+const PROFILE_MODE = values.profileMode!;
+const PROFILE_DIR = values.profileDir!;
+const RESET_PROFILES = values.resetProfiles!;
+const SCREENSHOT_ON_WIN = values.screenshotOnWin!;
 
-let isSuccess = false;
-let winningAgentId: number | null = null;
+type HoldRecord = {
+  agentId: number;
+  site: string;
+  stage: SuccessStage;
+  timestamp: string;
+};
 
-type SuccessStage = 'site-details' | 'order-details';
+type RunState = {
+  bookingMode: 'single' | 'multi';
+  holds: HoldRecord[];
+  heldSites: Set<string>;
+  maxHolds: number;
+  isClosed: boolean;
+  winningAgentId: number | null;
+};
+
+const runState: RunState = {
+  bookingMode: BOOKING_MODE,
+  holds: [],
+  heldSites: new Set(),
+  maxHolds: MAX_HOLDS,
+  isClosed: false,
+  winningAgentId: null,
+};
 
 type SiteSelection = {
   site: string;
@@ -75,72 +105,78 @@ type SiteSelection = {
 const ALLOWED_ROW_ACTIONS = new Set(['SEE DETAILS', 'ENTER DATE']);
 const activeContexts = new Map<number, BrowserContext>();
 
-function notifySuccess(siteId: string, agentId: number, stage: SuccessStage) {
-  if (isSuccess) {
-    return;
-  }
-
-  isSuccess = true;
-
-  const stageLabel = stage === 'order-details' ? 'reached Order Details for' : 'opened site details for';
-  const message = `Bear Lake Booker: Agent ${agentId} ${stageLabel} site ${siteId} for ${TARGET_DATE} in ${LOOP}.`;
-
-  console.log(`\n[Agent ${agentId}] ${stage === 'order-details' ? 'Order Details reached' : 'Site details opened'} for ${siteId}.`);
-
-  try {
-    const escaped = message.replace(/"/g, '\\"');
-    execSync(`osascript -e 'display notification "${escaped}" with title "Bear Lake Booker: CAPTURE" sound name "Glass"'`);
-  } catch {
-    console.warn(`[Agent ${agentId}] Desktop notification failed.`);
-  }
-
-  try {
-    const escaped = message.replace(/"/g, '\\"');
-    execSync(`osascript -e 'tell application "Messages" to send "${escaped}" to buddy "${RECIPIENT}"'`);
-    console.log(`[Agent ${agentId}] iMessage sent to ${RECIPIENT}`);
-  } catch {
-    console.warn(`[Agent ${agentId}] iMessage failed.`);
-  }
+function isSiteAlreadyHeld(siteId: string): boolean {
+  return runState.heldSites.has(siteId);
 }
 
-function shouldCancelRemainingAgents(stage: SuccessStage) {
-  return stage === 'order-details' && AUTO_BOOK && !DRY_RUN;
+function shouldStopAgent(agentId: number): boolean {
+  if (runState.isClosed) {
+    return runState.winningAgentId !== agentId;
+  }
+  return false;
 }
 
-function shouldStopAgent(agentId: number) {
-  return winningAgentId !== null && winningAgentId !== agentId;
-}
-
-async function claimSuccess(agentId: number, siteId: string, stage: SuccessStage) {
-  if (shouldCancelRemainingAgents(stage)) {
-    if (winningAgentId !== null && winningAgentId !== agentId) {
-      return false;
-    }
-
-    if (winningAgentId === null) {
-      winningAgentId = agentId;
-    }
-
-    notifySuccess(siteId, agentId, stage);
-    await cancelRemainingAgents(agentId);
-    return true;
+function registerHold(agentId: number, siteId: string, stage: SuccessStage): boolean {
+  if (runState.isClosed) {
+    return false;
   }
 
-  notifySuccess(siteId, agentId, stage);
+  if (runState.heldSites.has(siteId)) {
+    console.log(`[Agent ${agentId}] Site ${siteId} is already held. Skipping.`);
+    return false;
+  }
+
+  runState.heldSites.add(siteId);
+  runState.holds.push({
+    agentId,
+    site: siteId,
+    stage,
+    timestamp: new Date().toISOString(),
+  });
+
+  notifySuccess(siteId, agentId, stage, TARGET_DATE, LOOP);
   return true;
 }
 
-async function cancelRemainingAgents(winnerAgentId: number) {
+async function claimSuccess(agentId: number, siteId: string, stage: SuccessStage): Promise<boolean> {
+  const registered = registerHold(agentId, siteId, stage);
+  if (!registered) {
+    return false;
+  }
+
+  if (runState.bookingMode === 'single') {
+    // Single mode: first win closes everything
+    runState.isClosed = true;
+    runState.winningAgentId = agentId;
+
+    if (stage === 'order-details' && AUTO_BOOK && !DRY_RUN) {
+      await cancelRemainingAgents(agentId);
+    }
+    return true;
+  }
+
+  // Multi mode: keep going until maxHolds reached
+  if (runState.holds.length >= runState.maxHolds) {
+    console.log(`Max holds (${runState.maxHolds}) reached. Closing remaining agents.`);
+    runState.isClosed = true;
+    runState.winningAgentId = agentId;
+    await cancelRemainingAgents(agentId);
+  }
+
+  return true;
+}
+
+async function cancelRemainingAgents(excludeAgentId: number) {
   const closePromises: Array<Promise<void>> = [];
 
   for (const [agentId, context] of activeContexts.entries()) {
-    if (agentId === winnerAgentId) {
+    if (agentId === excludeAgentId) {
       continue;
     }
 
-    console.log(`[Agent ${agentId}] Cancelling after winner Agent ${winnerAgentId} reached Order Details.`);
+    console.log(`[Agent ${agentId}] Cancelling (hold cap reached or single-winner).`);
     closePromises.push(
-      context.close().catch(() => {}),
+      context.close().catch(() => { }),
     );
   }
 
@@ -167,7 +203,7 @@ async function waitForTargetTime(targetTimeStr: string) {
 }
 
 async function waitForAvailability(): Promise<SiteAvailability[]> {
-  for (;;) {
+  for (; ;) {
     const result = await searchAvailability({
       date: TARGET_DATE,
       length: STAY_LENGTH,
@@ -220,11 +256,19 @@ async function runAgent(agentId: number, context: BrowserContext, targetSite: st
       return;
     }
 
+    if (isSiteAlreadyHeld(selection.site)) {
+      console.log(`[Agent ${agentId}] Site ${selection.site} is already held by another agent. Skipping.`);
+      return;
+    }
+
     console.log(`[Agent ${agentId}] Opened site ${selection.site} via ${selection.actionText || 'site details'}.`);
 
     if (!AUTO_BOOK || DRY_RUN) {
       if (DRY_RUN) {
         console.log(`[Agent ${agentId}] Dry run enabled. Stopping on site details for ${selection.site}.`);
+      }
+      if (SCREENSHOT_ON_WIN) {
+        await page.screenshot({ path: `logs/agent-${agentId}-win-${Date.now()}.png` }).catch(() => { });
       }
       await claimSuccess(agentId, selection.site, 'site-details');
       await holdBrowserIfNeeded(page, agentId);
@@ -241,20 +285,23 @@ async function runAgent(agentId: number, context: BrowserContext, targetSite: st
       if (!isWinner) {
         return;
       }
+      if (SCREENSHOT_ON_WIN) {
+        await page.screenshot({ path: `logs/agent-${agentId}-win-${Date.now()}.png` }).catch(() => { });
+      }
       await holdBrowserIfNeeded(page, agentId);
     } else {
       console.log(`[Agent ${agentId}] Opened ${selection.site}, but did not reach Order Details.`);
     }
   } catch (error) {
-    if (!isSuccess) {
+    if (!runState.isClosed) {
       const message = error instanceof Error ? error.message.split('\n')[0] : String(error);
       console.error(`[Agent ${agentId}] ${message}`);
-      await page.screenshot({ path: `agent-${agentId}-error.png` }).catch(() => {});
+      await page.screenshot({ path: `agent-${agentId}-error.png` }).catch(() => { });
     }
   } finally {
     activeContexts.delete(agentId);
-    await page.close().catch(() => {});
-    await context.close().catch(() => {});
+    await page.close().catch(() => { });
+    await context.close().catch(() => { });
   }
 }
 
@@ -520,8 +567,13 @@ async function holdBrowserIfNeeded(page: Page, agentId: number) {
     return;
   }
 
-  console.log(`[Agent ${agentId}] Keeping browser open for 30 seconds.`);
-  await page.waitForTimeout(30_000);
+  if (AUTO_BOOK && !DRY_RUN) {
+    console.log(`[Agent ${agentId}] Browser will stay open until you close it. Proceed to checkout manually.`);
+    await page.waitForEvent('close').catch(() => { });
+  } else {
+    console.log(`[Agent ${agentId}] Keeping browser open for 30 seconds.`);
+    await page.waitForTimeout(30_000);
+  }
 }
 
 function buildContextOptions(
@@ -542,10 +594,26 @@ function buildContextOptions(
   return contextOptions;
 }
 
+async function prepareProfileDir() {
+  if (PROFILE_MODE !== 'persistent') return;
+  if (!fs.existsSync(PROFILE_DIR)) {
+    fs.mkdirSync(PROFILE_DIR, { recursive: true });
+    console.log(`Created profile directory: ${PROFILE_DIR}`);
+  }
+
+  if (RESET_PROFILES) {
+    console.log(`Resetting profile directory: ${PROFILE_DIR}`);
+    fs.rmSync(PROFILE_DIR, { recursive: true, force: true });
+    fs.mkdirSync(PROFILE_DIR, { recursive: true });
+  }
+}
+
 async function launchCapture(targetSites: string[]) {
   activeContexts.clear();
-  winningAgentId = null;
-  isSuccess = false;
+  runState.winningAgentId = null;
+  runState.isClosed = false;
+  runState.holds = [];
+  runState.heldSites.clear();
   const hasSession = fs.existsSync(SESSION_FILE);
 
   if (!hasSession) {
@@ -562,13 +630,62 @@ async function launchCapture(targetSites: string[]) {
     console.log('Dry-run capture is enabled. Agents will stop on site details and never continue to Order Details.');
   }
 
-  const browser = await chromium.launch({ headless: !IS_HEADED });
+  if (BOOKING_MODE === 'multi') {
+    console.log(`Multi-hold mode enabled. Max holds: ${MAX_HOLDS}.`);
+  }
+
+  await prepareProfileDir();
+
+  let browser: Awaited<ReturnType<typeof chromium.launch>> | null = null;
+  if (PROFILE_MODE !== 'persistent') {
+    browser = await chromium.launch({ headless: !IS_HEADED });
+  }
+
   const agentPromises: Array<Promise<void>> = [];
 
   for (let index = 0; index < CONCURRENCY; index += 1) {
-    const context = await browser.newContext(buildContextOptions(browser, index, hasSession));
-    const targetSite = targetSites.length > 0 ? targetSites[index % targetSites.length] ?? null : null;
     const agentId = index + 1;
+    let context: BrowserContext;
+
+    if (PROFILE_MODE === 'persistent') {
+      const profilePath = `${PROFILE_DIR}/agent-${agentId}`;
+      const contextOptions = buildContextOptions({} as any, index, false);
+
+      const persistentOptions: Parameters<typeof chromium.launchPersistentContext>[1] = {
+        headless: !IS_HEADED,
+      };
+
+      if (contextOptions.userAgent) {
+        persistentOptions.userAgent = contextOptions.userAgent;
+      }
+
+      if (contextOptions.timezoneId) {
+        persistentOptions.timezoneId = contextOptions.timezoneId;
+      }
+
+      if (hasSession && !fs.existsSync(profilePath)) {
+        console.log(`[Agent ${agentId}] Seeding new persistent profile from session.json`);
+
+        // Load the external storage state if the profile is new
+        const seedContext = await chromium.launch({ headless: true }).then(b => b.newContext({ storageState: SESSION_FILE }));
+        const storageState = await seedContext.storageState();
+        await seedContext.browser()?.close();
+
+        // Seed files for playwright persistent profile isn't straightforward with `storageState`. 
+        // We will pass it via `launchPersistentContext` initialization if Playwright supports it, otherwise load in page.
+        // Actually, launchPersistentContext doesn't accept storageState directly in the same way.
+        // Let's pass it by creating a temporary browser, loading state, and copying cookies manually.
+        const launchedContext = await chromium.launchPersistentContext(profilePath, persistentOptions);
+        await launchedContext.addCookies(storageState.cookies);
+        context = launchedContext;
+      } else {
+        context = await chromium.launchPersistentContext(profilePath, persistentOptions);
+      }
+    } else {
+      context = await browser!.newContext(buildContextOptions(browser!, index, hasSession));
+    }
+
+    const targetSite = targetSites.length > 0 ? targetSites[index % targetSites.length] ?? null : null;
     const staggerStartupMs = agentId * 200;
 
     const promise = sleep(staggerStartupMs).then(() => runAgent(agentId, context, targetSite));
@@ -576,7 +693,22 @@ async function launchCapture(targetSites: string[]) {
   }
 
   await Promise.all(agentPromises);
-  await browser.close();
+  if (browser) {
+    await browser.close();
+  }
+
+  writeRunSummary({
+    timestamp: new Date().toISOString(),
+    targetDate: TARGET_DATE,
+    loop: LOOP,
+    agentCount: CONCURRENCY,
+    bookingMode: BOOKING_MODE,
+    maxHolds: MAX_HOLDS,
+    holds: runState.holds,
+    winningAgent: runState.winningAgentId,
+    winningSite: runState.holds[0]?.site ?? null,
+    status: runState.holds.length > 0 ? 'success' : 'failure',
+  });
 }
 
 async function startRace() {

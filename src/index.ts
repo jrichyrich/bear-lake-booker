@@ -1,8 +1,7 @@
 import { execSync } from 'child_process';
 import { parseArgs } from 'util';
 import { searchAvailability } from './reserveamerica';
-
-const RECIPIENT = 'richards_jason@me.com';
+import { RECIPIENT } from './config';
 
 const { values } = parseArgs({
   options: {
@@ -40,7 +39,7 @@ async function main() {
   if (INTERVAL_MINS) {
     console.log(`Continuous monitoring enabled: running every ${INTERVAL_MINS} minutes.`);
 
-    for (;;) {
+    for (; ;) {
       await checkAvailability();
       await sleep(INTERVAL_MINS * 60_000);
     }

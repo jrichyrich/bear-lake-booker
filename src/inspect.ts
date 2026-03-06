@@ -2,9 +2,8 @@ import { chromium, type BrowserContext, type Page, type Request } from 'playwrig
 import { parseArgs } from 'util';
 import { mkdirSync, createWriteStream, existsSync } from 'fs';
 import { join, resolve } from 'path';
-import { PARK_URL } from './reserveamerica';
+import { PARK_URL, SESSION_FILE } from './config';
 
-const SESSION_FILE = 'session.json';
 const CAPTURE_DIR = 'captures';
 
 const { values } = parseArgs({
@@ -130,7 +129,7 @@ async function main() {
   });
 
   stream.end();
-  await browser.close().catch(() => {});
+  await browser.close().catch(() => { });
   console.log(`Capture complete: ${capturePath}`);
 }
 
