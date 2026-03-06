@@ -10,6 +10,18 @@ import { searchAvailability, type SiteAvailability } from './reserveamerica';
 import { PARK_URL, SESSION_FILE, USER_AGENTS } from './config';
 import { notifySuccess, type SuccessStage } from './notify';
 import { writeRunSummary } from './reporter';
+import {
+  sleep,
+  ensureLoggedIn,
+  primeSearchForm,
+  submitSearchForm,
+  waitForSearchResults,
+  resolveTargetSites,
+  openSiteDetails,
+  continueToOrderDetails,
+  addToCart,
+  injectSession,
+} from './automation';
 
 const { values } = parseArgs({
   options: {
@@ -79,8 +91,7 @@ const PROFILE_MODE = values.profileMode!;
 const PROFILE_DIR = values.profileDir!;
 const RESET_PROFILES = values.resetProfiles!;
 const SCREENSHOT_ON_WIN = values.screenshotOnWin!;
-const SEQUENTIAL = values.sequential!;
-const SITE_ALLOWLIST: string[] = values.sites ? values.sites.split(',').map(s => s.trim().toUpperCase()) : [];
+const SITE_ALLOWLIST: string[] = values.sites ? values.sites.split(',').map((s) => s.trim().toUpperCase()) : [];
 
 type HoldRecord = {
   agentId: number;
@@ -107,13 +118,6 @@ const runState: RunState = {
   winningAgentId: null,
 };
 
-type SiteSelection = {
-  site: string;
-  detailsUrl: string;
-  actionText: string;
-};
-
-const ALLOWED_ROW_ACTIONS = new Set(['SEE DETAILS', 'ENTER DATE']);
 const activeContexts = new Map<number, BrowserContext>();
 
 function isSiteAlreadyHeld(siteId: string): boolean {
@@ -128,14 +132,8 @@ function shouldStopAgent(agentId: number): boolean {
 }
 
 function registerHold(agentId: number, siteId: string, stage: SuccessStage): boolean {
-  if (runState.isClosed) {
-    return false;
-  }
-
-  if (runState.heldSites.has(siteId)) {
-    console.log(`[Agent ${agentId}] Site ${siteId} is already held. Skipping.`);
-    return false;
-  }
+  if (runState.isClosed) return false;
+  if (runState.heldSites.has(siteId)) return false;
 
   runState.heldSites.add(siteId);
   runState.holds.push({
@@ -151,47 +149,28 @@ function registerHold(agentId: number, siteId: string, stage: SuccessStage): boo
 
 async function claimSuccess(agentId: number, siteId: string, stage: SuccessStage): Promise<boolean> {
   const registered = registerHold(agentId, siteId, stage);
-  if (!registered) {
-    return false;
-  }
+  if (!registered) return false;
 
   if (runState.bookingMode === 'single') {
-    // Single mode: first win closes everything
     runState.isClosed = true;
     runState.winningAgentId = agentId;
-
-    if (stage === 'order-details' && AUTO_BOOK && !DRY_RUN) {
-      await cancelRemainingAgents(agentId);
-    }
+    if (stage === 'order-details' && AUTO_BOOK && !DRY_RUN) await cancelRemainingAgents(agentId);
     return true;
   }
 
-  // Multi mode: keep going until maxHolds reached
   if (runState.holds.length >= runState.maxHolds) {
-    console.log(`Max holds (${runState.maxHolds}) reached. Closing remaining agents.`);
+    console.log(`Max holds reached. Closing agents.`);
     runState.isClosed = true;
     runState.winningAgentId = agentId;
     await cancelRemainingAgents(agentId);
   }
-
   return true;
 }
 
 async function cancelRemainingAgents(excludeAgentId: number) {
-  const closePromises: Array<Promise<void>> = [];
-
   for (const [agentId, context] of activeContexts.entries()) {
-    if (agentId === excludeAgentId) {
-      continue;
-    }
-
-    console.log(`[Agent ${agentId}] Cancelling (hold cap reached or single-winner).`);
-    closePromises.push(
-      context.close().catch(() => { }),
-    );
+    if (agentId !== excludeAgentId) await context.close().catch(() => {});
   }
-
-  await Promise.all(closePromises);
 }
 
 async function waitForTargetTime(targetTimeStr: string) {
@@ -201,11 +180,7 @@ async function waitForTargetTime(targetTimeStr: string) {
   return new Promise<void>((resolve) => {
     const interval = setInterval(() => {
       const now = new Date();
-      if (
-        now.getHours() === targetHours &&
-        now.getMinutes() === targetMinutes &&
-        now.getSeconds() >= targetSeconds
-      ) {
+      if (now.getHours() === targetHours && now.getMinutes() === targetMinutes && now.getSeconds() >= targetSeconds) {
         clearInterval(interval);
         resolve();
       }
@@ -214,7 +189,7 @@ async function waitForTargetTime(targetTimeStr: string) {
 }
 
 async function waitForAvailability(): Promise<SiteAvailability[]> {
-  for (; ;) {
+  for (;;) {
     const result = await searchAvailability({
       date: TARGET_DATE,
       length: STAY_LENGTH,
@@ -238,535 +213,97 @@ async function waitForAvailability(): Promise<SiteAvailability[]> {
   }
 }
 
-async function runAgent(agentId: number, context: BrowserContext, targetSite: string | null) {
+async function runAgent(agentId: number, context: BrowserContext, preferredSite: string | null) {
   activeContexts.set(agentId, context);
   const page = await context.newPage();
-
   try {
     const label = `[Agent ${agentId}] `;
-    console.log(`${label}Priming search form...`);
-    await primeSearchForm(page, label);
 
-    if (TARGET_TIME) {
-      await waitForTargetTime(TARGET_TIME);
-    }
+    await page.goto(PARK_URL, { waitUntil: 'domcontentloaded' });
+    await ensureLoggedIn(page, label);
 
-    const jitterMs = Math.floor(Math.random() * 150);
-    await sleep(jitterMs);
-
-    console.log(`[Agent ${agentId}] Submitting search (+${jitterMs}ms).`);
+    await primeSearchForm(page, LOOP, TARGET_DATE, STAY_LENGTH, label);
+    if (TARGET_TIME) await waitForTargetTime(TARGET_TIME);
+    await sleep(Math.random() * 200);
     await submitSearchForm(page);
     await waitForSearchResults(page);
 
-    if (shouldStopAgent(agentId)) {
-      return;
-    }
+    const candidates = await resolveTargetSites(page, TARGET_DATE, STAY_LENGTH);
+    if (preferredSite) candidates.sort((a) => (a.site === preferredSite ? -1 : 1));
 
-    const selection = await openTargetSite(page, targetSite, label);
-    if (!selection) {
-      console.log(`[Agent ${agentId}] No target site details page could be opened.`);
-      return;
-    }
+    for (const selection of candidates) {
+      if (shouldStopAgent(agentId)) break;
+      if (isSiteAlreadyHeld(selection.site)) continue;
 
-    if (isSiteAlreadyHeld(selection.site)) {
-      console.log(`[Agent ${agentId}] Site ${selection.site} is already held by another agent. Skipping.`);
-      return;
-    }
+      if (await openSiteDetails(page, selection)) {
+        if (isSiteAlreadyHeld(selection.site)) continue;
 
-    console.log(`[Agent ${agentId}] Opened site ${selection.site} via ${selection.actionText || 'site details'}.`);
+        if (!AUTO_BOOK || DRY_RUN) {
+          await claimSuccess(agentId, selection.site, 'site-details');
+          if (SCREENSHOT_ON_WIN) await page.screenshot({ path: `logs/agent-${agentId}-win-${Date.now()}.png` }).catch(() => {});
+          if (IS_HEADED) await page.waitForEvent('close').catch(() => {});
+          return;
+        }
 
-    if (!AUTO_BOOK || DRY_RUN) {
-      if (DRY_RUN) {
-        console.log(`[Agent ${agentId}] Dry run enabled. Stopping on site details for ${selection.site}.`);
+        if (await continueToOrderDetails(page, TARGET_DATE, STAY_LENGTH)) {
+          console.log(`${label}Reached Order Details for ${selection.site}. Finalizing hold...`);
+
+          if (await addToCart(page, label)) {
+            await claimSuccess(agentId, selection.site, 'order-details');
+            const screenshotPath = `logs/cart-agent-${agentId}-${selection.site}-${Date.now()}.png`;
+            await page.screenshot({ path: screenshotPath }).catch(() => {});
+            console.log(`${label}✅ Final hold secured in Shopping Cart! Screenshot: ${screenshotPath}`);
+
+            if (IS_HEADED) await page.waitForEvent('close').catch(() => {});
+            return;
+          } else {
+            const errorPath = `logs/fail-cart-agent-${agentId}-${selection.site}-${Date.now()}.png`;
+            await page.screenshot({ path: errorPath }).catch(() => {});
+            console.log(`${label}Failed to move to Shopping Cart. Screenshot: ${errorPath}`);
+          }
+        }
       }
-      if (SCREENSHOT_ON_WIN) {
-        await page.screenshot({ path: `logs/agent-${agentId}-win-${Date.now()}.png` }).catch(() => { });
-      }
-      await claimSuccess(agentId, selection.site, 'site-details');
-      await holdBrowserIfNeeded(page, agentId);
-      return;
-    }
-
-    if (shouldStopAgent(agentId)) {
-      return;
-    }
-
-    const booked = await continueToOrderDetails(page);
-    if (booked) {
-      const isWinner = await claimSuccess(agentId, selection.site, 'order-details');
-      if (!isWinner) {
-        return;
-      }
-      if (SCREENSHOT_ON_WIN) {
-        await page.screenshot({ path: `logs/agent-${agentId}-win-${Date.now()}.png` }).catch(() => { });
-      }
-      await holdBrowserIfNeeded(page, agentId);
-    } else {
-      console.log(`[Agent ${agentId}] Opened ${selection.site}, but did not reach Order Details.`);
     }
   } catch (error) {
-    if (!runState.isClosed) {
-      const message = error instanceof Error ? error.message.split('\n')[0] : String(error);
-      console.error(`[Agent ${agentId}] ${message}`);
-      await page.screenshot({ path: `agent-${agentId}-error.png` }).catch(() => { });
-    }
+    console.error(`[Agent ${agentId}] Error: ${error}`);
   } finally {
-    activeContexts.delete(agentId);
-    await page.close().catch(() => { });
-    await context.close().catch(() => { });
-  }
-}
-
-const MAX_RETRIES = 3;
-const RETRY_BACKOFF_MS = 5000;
-
-async function isErrorPage(page: Page): Promise<boolean> {
-  return page.evaluate(() => {
-    const text = (document.body.textContent ?? '').toLowerCase();
-    return text.includes('oops') || text.includes('experiencing some difficulties');
-  });
-}
-
-async function primeSearchForm(page: Page, agentLabel = ''): Promise<void> {
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    await page.goto(PARK_URL, { waitUntil: 'domcontentloaded' });
-
-    if (await isErrorPage(page)) {
-      console.log(`${agentLabel}Error page detected. Retry ${attempt}/${MAX_RETRIES} in ${RETRY_BACKOFF_MS / 1000}s...`);
-      await sleep(RETRY_BACKOFF_MS);
-      continue;
-    }
-
-    try {
-      await page.waitForSelector('#unifSearchForm', { timeout: 15000 });
-      break; // Success — form found
-    } catch {
-      if (attempt < MAX_RETRIES) {
-        console.log(`${agentLabel}Search form not found. Retry ${attempt}/${MAX_RETRIES} in ${RETRY_BACKOFF_MS / 1000}s...`);
-        await sleep(RETRY_BACKOFF_MS);
-      } else {
-        throw new Error('Search form not found after all retries.');
-      }
-    }
-  }
-
-  await page.evaluate(
-    ({ loop, date, length }) => {
-      const loopSelect = document.querySelector<HTMLSelectElement>('#loop');
-      const dateInput = document.querySelector<HTMLInputElement>('#campingDate');
-      const stayInput = document.querySelector<HTMLInputElement>('#lengthOfStay');
-      const form = document.querySelector<HTMLFormElement>('#unifSearchForm');
-
-      if (!loopSelect) {
-        throw new Error('Loop selector not found.');
-      }
-      if (!dateInput) {
-        throw new Error('Arrival date input not found.');
-      }
-      if (!stayInput) {
-        throw new Error('Length of stay input not found.');
-      }
-      if (!form) {
-        throw new Error('Search form not found.');
-      }
-
-      const option = Array.from(loopSelect.options).find(
-        (candidate) => candidate.textContent?.trim().toUpperCase() === loop.toUpperCase(),
-      );
-
-      if (!option || !option.value) {
-        throw new Error(`Loop "${loop}" not found in form options.`);
-      }
-
-      loopSelect.value = option.value;
-      loopSelect.dispatchEvent(new Event('change', { bubbles: true }));
-
-      dateInput.value = date;
-      dateInput.dispatchEvent(new Event('input', { bubbles: true }));
-      dateInput.dispatchEvent(new Event('change', { bubbles: true }));
-
-      stayInput.value = length;
-      stayInput.dispatchEvent(new Event('input', { bubbles: true }));
-      stayInput.dispatchEvent(new Event('change', { bubbles: true }));
-    },
-    {
-      loop: LOOP,
-      date: TARGET_DATE,
-      length: STAY_LENGTH,
-    },
-  );
-}
-
-async function submitSearchForm(page: Page) {
-  const navigation = page.waitForNavigation({
-    waitUntil: 'domcontentloaded',
-    timeout: 15000,
-  }).catch(() => null);
-
-  await page.evaluate(() => {
-    const form = document.querySelector<HTMLFormElement>('#unifSearchForm');
-    if (!form) {
-      throw new Error('Search form not found.');
-    }
-
-    const engine = (window as Window & {
-      UnifSearchEngine?: {
-        submitForm?: () => void;
-      };
-    }).UnifSearchEngine;
-
-    if (engine?.submitForm) {
-      engine.submitForm();
-    }
-
-    form.submit();
-  });
-
-  await navigation;
-}
-
-async function waitForSearchResults(page: Page) {
-  await page.waitForFunction(
-    () => {
-      const dateInput = document.querySelector<HTMLInputElement>('#campingDate');
-      const bodyText = document.body.textContent ?? '';
-      const hasCalendarRows = document.querySelectorAll('#calendar .br').length > 0;
-      const hasSummaryState =
-        bodyText.includes('0 site(s) available') ||
-        bodyText.includes('Arrival date may be beyond Reservation Window') ||
-        bodyText.includes('Create Availability Notification');
-
-      return Boolean(dateInput) && (hasCalendarRows || hasSummaryState);
-    },
-    {
-      timeout: 15000,
-    },
-  );
-}
-
-async function openTargetSite(page: Page, preferredSite: string | null, agentLabel = ''): Promise<SiteSelection | null> {
-  const selection = await resolveTargetSite(page, preferredSite);
-  if (!selection) {
-    return null;
-  }
-
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    await page.goto(selection.detailsUrl, { waitUntil: 'domcontentloaded' });
-
-    if (await isErrorPage(page)) {
-      if (attempt < MAX_RETRIES) {
-        console.log(`${agentLabel}Error page on site details. Retry ${attempt}/${MAX_RETRIES} in 3s...`);
-        await sleep(3000);
-        continue;
-      }
-      console.log(`${agentLabel}Error page persisted after ${MAX_RETRIES} retries for ${selection.site}.`);
-      return null;
-    }
-
-    try {
-      await page.waitForFunction(
-        () =>
-          Boolean(document.querySelector('#booksiteform')) ||
-          Boolean(document.querySelector('#arrivaldate')) ||
-          (document.body.textContent ?? '').includes('No suitable availability shown'),
-        { timeout: 15000 },
-      );
-      return selection;
-    } catch {
-      if (attempt < MAX_RETRIES) {
-        console.log(`${agentLabel}Site details page didn't load. Retry ${attempt}/${MAX_RETRIES} in 3s...`);
-        await sleep(3000);
-      } else {
-        console.log(`${agentLabel}Site details timed out after ${MAX_RETRIES} retries for ${selection.site}.`);
-        return null;
-      }
-    }
-  }
-
-  return null;
-}
-
-async function resolveTargetSite(page: Page, preferredSite: string | null): Promise<SiteSelection | null> {
-  const candidates = await page.evaluate(
-    ({ targetDate, stayLength, allowedActions }) =>
-      Array.from(document.querySelectorAll<HTMLDivElement>('.br'))
-        .map((row) => {
-          const siteLink = row.querySelector<HTMLAnchorElement>('.siteListLabel a[href*="campsiteDetails.do"]');
-          if (!siteLink) {
-            return null;
-          }
-
-          const actionLink = row.querySelector<HTMLAnchorElement>('.td[class*="sitescompareselectorbtn"] a');
-          const actionText = actionLink?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
-
-          if (!actionLink || !allowedActions.includes(actionText.toUpperCase())) {
-            return null;
-          }
-
-          const detailsUrl = new URL(siteLink.href, window.location.href);
-
-          detailsUrl.searchParams.set('arvdate', targetDate);
-          detailsUrl.searchParams.set('lengthOfStay', stayLength);
-
-          return {
-            site: siteLink.textContent?.trim() ?? '',
-            actionText,
-            detailsUrl: detailsUrl.toString(),
-          };
-        })
-        .filter((candidate): candidate is SiteSelection => Boolean(candidate?.site)),
-    {
-      targetDate: TARGET_DATE,
-      stayLength: STAY_LENGTH,
-      allowedActions: Array.from(ALLOWED_ROW_ACTIONS),
-    },
-  );
-
-  if (preferredSite) {
-    const preferred = candidates.find((candidate) => candidate.site === preferredSite);
-    if (preferred) {
-      return preferred;
-    }
-  }
-
-  return candidates[0] ?? null;
-}
-
-async function continueToOrderDetails(page: Page): Promise<boolean> {
-  const readyToBook = await prepareSiteForBooking(page);
-  if (!readyToBook) {
-    return false;
-  }
-
-  const bookButton = page
-    .locator('#btnbookdates, #btnbooknow, button:has-text("Book these Dates"), button:has-text("Book Now")')
-    .first();
-
-  if ((await bookButton.count()) === 0) {
-    return false;
-  }
-
-  const navigation = page.waitForNavigation({
-    waitUntil: 'domcontentloaded',
-    timeout: 15000,
-  }).catch(() => null);
-
-  await bookButton.click();
-  await navigation;
-
-  return waitForOrderDetails(page);
-}
-
-async function prepareSiteForBooking(page: Page): Promise<boolean> {
-  if (await isReadyToBook(page)) {
-    return true;
-  }
-
-  if ((await page.locator('#arrivaldate').count()) === 0 || (await page.locator('#lengthOfStay').count()) === 0) {
-    return false;
-  }
-
-  await page.locator('#arrivaldate').fill(TARGET_DATE);
-  await page.locator('#lengthOfStay').fill(STAY_LENGTH);
-
-  const submitButton = page.locator('#btnbookdates').first();
-  if ((await submitButton.count()) === 0) {
-    return false;
-  }
-
-  const navigation = page.waitForNavigation({
-    waitUntil: 'domcontentloaded',
-    timeout: 15000,
-  }).catch(() => null);
-
-  await submitButton.click();
-  await navigation;
-
-  return isReadyToBook(page);
-}
-
-async function isReadyToBook(page: Page): Promise<boolean> {
-  return page.evaluate(() => {
-    const form = document.querySelector<HTMLFormElement>('#booksiteform');
-    const action = form?.getAttribute('action') ?? '';
-    const dateChosen = document.querySelector<HTMLInputElement>('#dateChosen')?.value ?? '';
-    const buttonText = document.querySelector<HTMLButtonElement>('#btnbookdates')?.textContent?.trim() ?? '';
-    const bodyText = document.body.textContent ?? '';
-
-    if (bodyText.includes('No suitable availability shown')) {
-      return false;
-    }
-
-    return action.includes('/switchBookingAction.do') && dateChosen === 'true' && /book/i.test(buttonText);
-  });
-}
-
-async function waitForOrderDetails(page: Page): Promise<boolean> {
-  const reached = await page
-    .waitForFunction(
-      () =>
-        window.location.pathname.includes('/switchBookingAction.do') ||
-        Boolean(document.querySelector('#reservedetail')) ||
-        (document.body.textContent ?? '').includes('Order Details'),
-      {
-        timeout: 15000,
-      },
-    )
-    .then(() => true)
-    .catch(() => false);
-
-  if (!reached) {
-    return false;
-  }
-
-  return page.evaluate(() => {
-    const bodyText = document.body.textContent ?? '';
-    return bodyText.includes('Order Details') || Boolean(document.querySelector('#reservedetail'));
-  });
-}
-
-async function holdBrowserIfNeeded(page: Page, agentId: number) {
-  if (!IS_HEADED) {
-    return;
-  }
-
-  if (AUTO_BOOK && !DRY_RUN) {
-    console.log(`[Agent ${agentId}] Browser will stay open until you close it. Proceed to checkout manually.`);
-    await page.waitForEvent('close').catch(() => { });
-  } else {
-    console.log(`[Agent ${agentId}] Keeping browser open for 30 seconds.`);
-    await page.waitForTimeout(30_000);
-  }
-}
-
-function buildContextOptions(
-  browser: Awaited<ReturnType<typeof chromium.launch>>,
-  index: number,
-  hasSession: boolean,
-): NonNullable<Parameters<typeof browser.newContext>[0]> {
-  const userAgent = USER_AGENTS[index % USER_AGENTS.length] ?? USER_AGENTS[0] ?? 'Mozilla/5.0';
-  const contextOptions: NonNullable<Parameters<typeof browser.newContext>[0]> = {
-    userAgent,
-    timezoneId: 'America/Denver',
-  };
-
-  if (hasSession) {
-    contextOptions.storageState = SESSION_FILE;
-  }
-
-  return contextOptions;
-}
-
-async function prepareProfileDir() {
-  if (PROFILE_MODE !== 'persistent') return;
-  if (!fs.existsSync(PROFILE_DIR)) {
-    fs.mkdirSync(PROFILE_DIR, { recursive: true });
-    console.log(`Created profile directory: ${PROFILE_DIR}`);
-  }
-
-  if (RESET_PROFILES) {
-    console.log(`Resetting profile directory: ${PROFILE_DIR}`);
-    fs.rmSync(PROFILE_DIR, { recursive: true, force: true });
-    fs.mkdirSync(PROFILE_DIR, { recursive: true });
+    await context.close().catch(() => {});
   }
 }
 
 async function launchCapture(targetSites: string[]) {
-  activeContexts.clear();
-  runState.winningAgentId = null;
-  runState.isClosed = false;
-  runState.holds = [];
-  runState.heldSites.clear();
   const hasSession = fs.existsSync(SESSION_FILE);
-
-  if (!hasSession) {
-    console.warn('WARNING: session.json not found. Capture will run as guest.');
-  } else {
-    console.log('Authentication session loaded.');
+  if (PROFILE_MODE === 'persistent') {
+    if (!fs.existsSync(PROFILE_DIR)) fs.mkdirSync(PROFILE_DIR, { recursive: true });
   }
 
-  if (AUTO_BOOK && !hasSession) {
-    console.warn('AUTO_BOOK is enabled, but no saved session is present. Booking may stop at login.');
-  }
+  let browser: any = null;
+  if (PROFILE_MODE !== 'persistent') browser = await chromium.launch({ headless: !IS_HEADED });
 
-  if (DRY_RUN) {
-    console.log('Dry-run capture is enabled. Agents will stop on site details and never continue to Order Details.');
-  }
-
-  if (BOOKING_MODE === 'multi') {
-    console.log(`Multi-hold mode enabled. Max holds: ${MAX_HOLDS}.`);
-  }
-
-  await prepareProfileDir();
-
-  let browser: Awaited<ReturnType<typeof chromium.launch>> | null = null;
-  if (PROFILE_MODE !== 'persistent') {
-    browser = await chromium.launch({ headless: !IS_HEADED });
-  }
-
-  const agentPromises: Array<Promise<void>> = [];
-
-  for (let index = 0; index < CONCURRENCY; index += 1) {
-    const agentId = index + 1;
+  const promises: Promise<void>[] = [];
+  for (let i = 0; i < CONCURRENCY; i++) {
+    const agentId = i + 1;
     let context: BrowserContext;
 
     if (PROFILE_MODE === 'persistent') {
-      const profilePath = `${PROFILE_DIR}/agent-${agentId}`;
-      const contextOptions = buildContextOptions({} as any, index, false);
-
-      const persistentOptions: Parameters<typeof chromium.launchPersistentContext>[1] = {
-        headless: !IS_HEADED,
-      };
-
-      if (contextOptions.userAgent) {
-        persistentOptions.userAgent = contextOptions.userAgent;
-      }
-
-      if (contextOptions.timezoneId) {
-        persistentOptions.timezoneId = contextOptions.timezoneId;
-      }
-
-      if (hasSession && !fs.existsSync(profilePath)) {
-        console.log(`[Agent ${agentId}] Seeding new persistent profile from session.json`);
-
-        // Load the external storage state if the profile is new
-        const seedContext = await chromium.launch({ headless: true }).then(b => b.newContext({ storageState: SESSION_FILE }));
-        const storageState = await seedContext.storageState();
-        await seedContext.browser()?.close();
-
-        // Seed files for playwright persistent profile isn't straightforward with `storageState`. 
-        // We will pass it via `launchPersistentContext` initialization if Playwright supports it, otherwise load in page.
-        // Actually, launchPersistentContext doesn't accept storageState directly in the same way.
-        // Let's pass it by creating a temporary browser, loading state, and copying cookies manually.
-        const launchedContext = await chromium.launchPersistentContext(profilePath, persistentOptions);
-        await launchedContext.addCookies(storageState.cookies);
-        context = launchedContext;
-      } else {
-        context = await chromium.launchPersistentContext(profilePath, persistentOptions);
+      const path = `${PROFILE_DIR}/agent-${agentId}`;
+      const options = { headless: !IS_HEADED, timezoneId: 'America/Denver' };
+      context = await chromium.launchPersistentContext(path, options);
+      if (hasSession) {
+        console.log(`[Agent ${agentId}] Refreshing session state...`);
+        await injectSession(context);
       }
     } else {
-      context = await browser!.newContext(buildContextOptions(browser!, index, hasSession));
+      context = await browser!.newContext({
+        storageState: hasSession ? SESSION_FILE : undefined,
+        timezoneId: 'America/Denver',
+      });
     }
-
-    // Smart distribution: assign unique sites to each agent instead of overlapping
-    let targetSite: string | null = null;
-    if (targetSites.length > 0) {
-      // Each agent gets a unique site; extras get null (take whatever is available)
-      if (index < targetSites.length) {
-        targetSite = targetSites[index] ?? null;
-      }
-    }
-    const staggerStartupMs = agentId * 200;
-
-    const promise = sleep(staggerStartupMs).then(() => runAgent(agentId, context, targetSite));
-    agentPromises.push(promise);
+    promises.push(sleep(i * 300).then(() => runAgent(agentId, context, targetSites[i] ?? null)));
   }
 
-  await Promise.all(agentPromises);
-  if (browser) {
-    await browser.close();
-  }
-
+  await Promise.all(promises);
+  if (browser) await browser.close();
   writeRunSummary({
     timestamp: new Date().toISOString(),
     targetDate: TARGET_DATE,
@@ -781,151 +318,25 @@ async function launchCapture(targetSites: string[]) {
   });
 }
 
-async function runSequentialCapture(targetSites: string[]) {
-  runState.winningAgentId = null;
-  runState.isClosed = false;
-  runState.holds = [];
-  runState.heldSites.clear();
-
-  const hasSession = fs.existsSync(SESSION_FILE);
-  if (!hasSession) {
-    console.warn('WARNING: session.json not found. Capture will run as guest.');
-  } else {
-    console.log('Authentication session loaded.');
-  }
-
-  if (DRY_RUN) {
-    console.log('Dry-run capture is enabled. Will stop on site details.');
-  }
-
-  console.log(`Sequential mode: booking up to ${MAX_HOLDS} site(s) one at a time.`);
-
-  const contextOptions: Parameters<typeof chromium.launch>[0] = { headless: !IS_HEADED };
-  const browser = await chromium.launch(contextOptions);
-  const context = hasSession
-    ? await browser.newContext({ storageState: SESSION_FILE, timezoneId: 'America/Denver' })
-    : await browser.newContext({ timezoneId: 'America/Denver' });
-  const page = await context.newPage();
-  const label = '[Sequential] ';
-
-  try {
-    for (let i = 0; i < targetSites.length; i++) {
-      if (runState.holds.length >= MAX_HOLDS) {
-        console.log(`${label}Max holds (${MAX_HOLDS}) reached. Done.`);
-        break;
-      }
-
-      const site = targetSites[i]!;
-      if (isSiteAlreadyHeld(site)) {
-        continue;
-      }
-
-      console.log(`${label}Attempting site ${site} (${i + 1}/${targetSites.length})...`);
-      await primeSearchForm(page, label);
-      await submitSearchForm(page);
-      await waitForSearchResults(page);
-
-      const selection = await openTargetSite(page, site, label);
-      if (!selection) {
-        console.log(`${label}Could not open ${site}. Trying next.`);
-        continue;
-      }
-
-      if (isSiteAlreadyHeld(selection.site)) {
-        continue;
-      }
-
-      console.log(`${label}Opened site ${selection.site}.`);
-
-      if (!AUTO_BOOK || DRY_RUN) {
-        if (SCREENSHOT_ON_WIN) {
-          await page.screenshot({ path: `logs/seq-${selection.site}-${Date.now()}.png` }).catch(() => { });
-        }
-        await claimSuccess(0, selection.site, 'site-details');
-        continue;
-      }
-
-      const booked = await continueToOrderDetails(page);
-      if (booked) {
-        if (SCREENSHOT_ON_WIN) {
-          await page.screenshot({ path: `logs/seq-${selection.site}-${Date.now()}.png` }).catch(() => { });
-        }
-        await claimSuccess(0, selection.site, 'order-details');
-        console.log(`${label}Held ${selection.site} at Order Details.`);
-      } else {
-        console.log(`${label}Could not reach Order Details for ${selection.site}.`);
-      }
-    }
-  } catch (error) {
-    const message = error instanceof Error ? error.message.split('\n')[0] : String(error);
-    console.error(`${label}${message}`);
-  }
-
-  if (IS_HEADED && runState.holds.length > 0 && AUTO_BOOK && !DRY_RUN) {
-    console.log(`${label}Browser will stay open until you close it. Proceed to checkout manually.`);
-    await page.waitForEvent('close').catch(() => { });
-  }
-
-  await browser.close().catch(() => { });
-
-  writeRunSummary({
-    timestamp: new Date().toISOString(),
-    targetDate: TARGET_DATE,
-    loop: LOOP,
-    agentCount: 1,
-    bookingMode: BOOKING_MODE,
-    maxHolds: MAX_HOLDS,
-    holds: runState.holds,
-    winningAgent: runState.winningAgentId,
-    winningSite: runState.holds[0]?.site ?? null,
-    status: runState.holds.length > 0 ? 'success' : 'failure',
-  });
-}
-
 async function startRace() {
-  console.log('\nBear Lake Booker Hybrid Capture');
-
+  console.log('--- Bear Lake Sniper Mode ---');
   if (TARGET_TIME) {
-    console.log('Scheduled fire mode enabled. Skipping HTTP preflight and waiting for target time.');
     await launchCapture([]);
     return;
   }
 
-  const exactMatches = await waitForAvailability();
-  if (exactMatches.length === 0) {
-    return;
-  }
-
-  let targetSites = exactMatches.map((site) => site.site);
-
-  // Apply allowlist filter if --sites was specified
-  if (SITE_ALLOWLIST.length > 0) {
-    targetSites = targetSites.filter(site => SITE_ALLOWLIST.includes(site.toUpperCase()));
-    if (targetSites.length === 0) {
-      console.log(`None of the requested sites (${SITE_ALLOWLIST.join(', ')}) are available.`);
-      return;
+  const result = await waitForAvailability();
+  if (result.length > 0) {
+    let targetSites = result.map((s) => s.site);
+    if (SITE_ALLOWLIST.length > 0) {
+      targetSites = targetSites.filter((s) => SITE_ALLOWLIST.includes(s.toUpperCase()));
+      if (targetSites.length === 0) {
+        console.log('No available sites match your --sites allowlist.');
+        return;
+      }
     }
-    console.log(`Filtered to requested sites: ${targetSites.join(', ')}`);
-  }
-
-  console.log(`Exact-date opening detected for ${TARGET_DATE}: ${targetSites.join(', ')}`);
-
-  if (SEQUENTIAL) {
-    await runSequentialCapture(targetSites);
-  } else {
-    console.log('Launching Playwright capture agents.');
     await launchCapture(targetSites);
   }
 }
 
-function sleep(ms: number) {
-  return new Promise<void>((resolve) => {
-    setTimeout(resolve, ms);
-  });
-}
-
-void startRace().catch((error) => {
-  const message = error instanceof Error ? error.message : String(error);
-  console.error(message);
-  process.exitCode = 1;
-});
+startRace().catch(console.error);

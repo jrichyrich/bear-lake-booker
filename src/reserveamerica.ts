@@ -1,3 +1,6 @@
+import * as cheerio from 'cheerio';
+import * as fs from 'fs';
+import * as path from 'path';
 import { PARK_URL } from './config';
 
 const USER_AGENT = 'bear-lake-booker/1.0';
@@ -24,10 +27,31 @@ export type SearchResult = {
   totalSites: number;
 };
 
+async function fetchWithRetry(url: string, options: RequestInit, maxRetries = 3): Promise<Response> {
+  let lastError: Error | null = null;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      if (attempt > 0) {
+        const backoff = Math.pow(2, attempt) * 1000;
+        console.log(`Retrying fetch in ${backoff / 1000}s... (Attempt ${attempt}/${maxRetries})`);
+        await new Promise((resolve) => setTimeout(resolve, backoff));
+      }
+      const response = await fetch(url, options);
+      if (response.ok || response.status < 500) {
+        return response;
+      }
+      throw new Error(`Server returned ${response.status}`);
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+    }
+  }
+  throw lastError || new Error('Fetch failed');
+}
+
 export async function searchAvailability(params: SearchParams): Promise<SearchResult> {
   validateDate(params.date);
 
-  const landingResponse = await fetch(PARK_URL, {
+  const landingResponse = await fetchWithRetry(PARK_URL, {
     headers: {
       'user-agent': USER_AGENT,
     },
@@ -42,7 +66,7 @@ export async function searchAvailability(params: SearchParams): Promise<SearchRe
   const loopValue = resolveLoopValue(landingHtml, params.loop);
   const body = buildSearchBody(params, loopValue);
 
-  const searchResponse = await fetch(PARK_URL, {
+  const searchResponse = await fetchWithRetry(PARK_URL, {
     method: 'POST',
     headers: {
       'content-type': 'application/x-www-form-urlencoded',
@@ -83,37 +107,53 @@ function buildSearchBody(params: SearchParams, loopValue: string): URLSearchPara
   });
 }
 
-function parseSearchResult(html: string, targetDate: string): Omit<SearchResult, 'loopValue'> {
-  const calendarHtml = extractCalendarHtml(html);
-  const columnCount = countCalendarColumns(calendarHtml);
-  const arrivalDates = buildArrivalDates(targetDate, columnCount);
-  const rows = calendarHtml.split("<div class='br'>").slice(1);
+export function parseSearchResult(html: string, targetDate: string): Omit<SearchResult, 'loopValue'> {
+  const $ = cheerio.load(html);
+  const calendar = $('#calendar');
+  if (calendar.length === 0) {
+    const logDir = path.resolve(process.cwd(), 'logs');
+    if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
+    const filename = `debug-parser-fail-${Date.now()}.html`;
+    fs.writeFileSync(path.join(logDir, filename), html, 'utf-8');
+    throw new Error(`Calendar section was not found in the response. Raw HTML saved to logs/${filename}`);
+  }
+
+  const arrivalDates = buildArrivalDates(targetDate, countCalendarColumns($));
   const sites: SiteAvailability[] = [];
 
-  for (const row of rows) {
-    const siteMatch = row.match(/class='siteListLabel'><a [^>]*>([^<]+)<\/a>/);
-    const loopMatch = row.match(/class='td loopName'[^>]*>([^<]+)<\/div>/);
-    const statusMatches = Array.from(row.matchAll(/<div class='td status ([^']+)'[^>]*>([\s\S]*?)<\/div>/g));
+  calendar.find('.br').each((_, element) => {
+    const row = $(element);
+    if (row.hasClass('thead')) return; // Skip header row
 
-    if (!siteMatch || !loopMatch || statusMatches.length === 0) {
-      continue;
+    const siteName = row.find('.siteListLabel a').text().trim();
+    const loopName = row.find('.td.loopName').text().trim();
+    const statusElements = row.find('.td.status');
+
+    if (!siteName || !loopName || statusElements.length === 0) {
+      return;
     }
 
-    const statuses = statusMatches.map((match) => {
-      const className = match[1] ?? '';
-      const innerHtml = match[2] ?? '';
-      return normalizeStatus(innerHtml, className);
+    const statuses = statusElements.toArray().map((el) => {
+      const cell = $(el);
+      const text = cell.text().trim().toUpperCase();
+      if (text) return text;
+
+      // Extract status code from class (e.g., 'status A')
+      const classes = cell.attr('class') || '';
+      const code = classes.split(/\s+/).find((c) => c.length === 1 && /[A-Z]/i.test(c));
+      return code ? code.toUpperCase() : '?';
     });
+
     const availableDates = arrivalDates.filter((_, index) => statuses[index] === 'A');
 
     sites.push({
-      site: decodeHtml(siteMatch[1] ?? '').trim(),
-      loop: decodeHtml(loopMatch[1] ?? '').trim(),
+      site: siteName,
+      loop: loopName,
       statuses,
       availableDates,
       targetDateAvailable: statuses[0] === 'A',
     });
-  }
+  });
 
   return {
     arrivalDates,
@@ -123,37 +163,12 @@ function parseSearchResult(html: string, targetDate: string): Omit<SearchResult,
   };
 }
 
-function extractCalendarHtml(html: string): string {
-  const start = html.indexOf("<div id='calendar' class='items'>");
-  if (start === -1) {
-    throw new Error('Calendar section was not found in the response.');
-  }
-
-  const endMarkers = [
-    '<script type="text/javascript">var UWPResultSummary',
-    "<div class='h3'>Facilities:",
-  ];
-  const end = endMarkers
-    .map((marker) => html.indexOf(marker, start))
-    .filter((index) => index !== -1)
-    .sort((a, b) => a - b)[0];
-
-  return html.slice(start, end === undefined ? html.length : end);
-}
-
-function countCalendarColumns(calendarHtml: string): number {
-  const headerMatch = calendarHtml.match(/<div class='thead'>([\s\S]*?)<div class='br'>/);
-  if (!headerMatch) {
-    throw new Error('Calendar header was not found in the response.');
-  }
-
-  const headerHtml = headerMatch[1] ?? '';
-  const matches = headerHtml.match(/class='th calendar/g);
-  if (!matches || matches.length === 0) {
+function countCalendarColumns($: cheerio.CheerioAPI): number {
+  const headerColumns = $('.thead .th.calendar');
+  if (headerColumns.length === 0) {
     throw new Error('Calendar did not contain any date columns.');
   }
-
-  return matches.length;
+  return headerColumns.length;
 }
 
 function buildArrivalDates(startDate: string, columnCount: number): string[] {
@@ -203,12 +218,13 @@ function validateDate(value: string) {
 }
 
 function resolveLoopValue(html: string, desiredLoop: string): string {
-  const options = Array.from(html.matchAll(/<option\s+value='([^']*)'[^>]*>([^<]+)<\/option>/g)).map(
-    (match) => ({
-      value: decodeHtml(match[1] ?? '').trim(),
-      label: decodeHtml(match[2] ?? '').trim(),
-    }),
-  );
+  const $ = cheerio.load(html);
+  const options = $('select#loop option')
+    .toArray()
+    .map((el) => ({
+      value: $(el).attr('value')?.trim() || '',
+      label: $(el).text().trim(),
+    }));
 
   const match = options.find(
     (option) => option.label.localeCompare(desiredLoop, undefined, { sensitivity: 'accent' }) === 0,
@@ -223,28 +239,6 @@ function resolveLoopValue(html: string, desiredLoop: string): string {
   }
 
   return match.value;
-}
-
-function normalizeStatus(innerHtml: string, className: string): string {
-  const text = decodeHtml(innerHtml.replace(/<[^>]+>/g, '')).trim().toUpperCase();
-  if (text) {
-    return text;
-  }
-
-  const classToken = className
-    .split(/\s+/)
-    .find((token) => token.length === 1 && /[a-z]/i.test(token));
-
-  return classToken ? classToken.toUpperCase() : '?';
-}
-
-function decodeHtml(value: string): string {
-  return value
-    .replace(/&amp;/g, '&')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>');
 }
 
 function getCookieHeader(response: Response): string {

@@ -1,7 +1,6 @@
-import { execSync } from 'child_process';
 import { parseArgs } from 'util';
 import { searchAvailability } from './reserveamerica';
-import { RECIPIENT } from './config';
+import { notifySuccess } from './notify';
 
 const { values } = parseArgs({
   options: {
@@ -61,9 +60,7 @@ async function checkAvailability() {
 
     if (result.exactDateMatches.length > 0) {
       const sites = result.exactDateMatches.map((site) => site.site);
-      console.log(`Availability found for ${TARGET_DATE}: ${sites.length} site(s) can start that day.`);
-      console.log(`Sites: ${sites.join(', ')}`);
-      notifySuccess(sites);
+      notifySuccess(sites, null, 'monitoring', TARGET_DATE, LOOP, STAY_LENGTH);
       return;
     }
 
@@ -80,27 +77,6 @@ async function checkAvailability() {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(`Search failed: ${message}`);
-  }
-}
-
-function notifySuccess(sites: string[]) {
-  const message = `Bear Lake Booker: Found ${sites.length} site(s) for ${TARGET_DATE} (${STAY_LENGTH} nights) in ${LOOP}: ${sites.join(', ')}`;
-
-  console.log('Triggering notifications...');
-
-  try {
-    const escaped = message.replace(/"/g, '\\"');
-    execSync(`osascript -e 'display notification "${escaped}" with title "Bear Lake Booker" sound name "Crystal"'`);
-  } catch {
-    console.warn('Desktop notification failed.');
-  }
-
-  try {
-    const escaped = message.replace(/"/g, '\\"');
-    execSync(`osascript -e 'tell application "Messages" to send "${escaped}" to buddy "${RECIPIENT}"'`);
-    console.log(`iMessage sent to ${RECIPIENT}`);
-  } catch {
-    console.warn('iMessage failed. Ensure Messages.app is signed in.');
   }
 }
 

@@ -1,6 +1,7 @@
 export const PARK_URL = 'https://utahstateparks.reserveamerica.com/camping/bear-lake-state-park/r/campgroundDetails.do?contractCode=UT&parkId=343061';
 export const SESSION_FILE = 'session.json';
 export const RECIPIENT = 'richards_jason@me.com';
+export const DEFAULT_ACCOUNT = 'lisarichards1984@gmail.com';
 
 export const USER_AGENTS = [
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',

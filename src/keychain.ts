@@ -1,4 +1,5 @@
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
+import { DEFAULT_ACCOUNT } from './config';
 
 export interface Credentials {
   username: string;
@@ -17,7 +18,12 @@ export function getPassword(service: string, account: string): string | undefine
     // -w: only output the password
     // -s: service name
     // -a: account name
-    const password = execSync(`security find-generic-password -s "${service}" -a "${account}" -w`, {
+    const password = execFileSync('security', [
+      'find-generic-password',
+      '-s', service,
+      '-a', account,
+      '-w'
+    ], {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'], // Ignore stderr to avoid noise if not found
     }).trim();
@@ -29,13 +35,40 @@ export function getPassword(service: string, account: string): string | undefine
 }
 
 /**
- * Retrieves the ReserveAmerica credentials from the keychain.
- * Defaults to the account 'lisarichards1984@gmail.com' and service 'ReserveAmerica'.
+ * Securely stores a password in the macOS Keychain for a given service and account.
+ * Uses -U to update existing entries.
  */
-export function getReserveAmericaCredentials(account = 'lisarichards1984@gmail.com'): Credentials {
+export function setPassword(service: string, account: string, password: string) {
+  try {
+    execFileSync('security', [
+      'add-generic-password',
+      '-a', account,
+      '-s', service,
+      '-w', password,
+      '-U'
+    ]);
+    return true;
+  } catch (error) {
+    console.error(`Failed to save password to keychain: ${error instanceof Error ? error.message : String(error)}`);
+    return false;
+  }
+}
+
+/**
+ * Retrieves the ReserveAmerica credentials from the keychain.
+ * Defaults to the account from config.
+ */
+export function getReserveAmericaCredentials(account = DEFAULT_ACCOUNT): Credentials {
   const password = getPassword('ReserveAmerica', account);
   return {
     username: account,
     password,
   };
+}
+
+/**
+ * Saves ReserveAmerica credentials to the keychain.
+ */
+export function saveReserveAmericaCredentials(password: string, account = DEFAULT_ACCOUNT) {
+  return setPassword('ReserveAmerica', account, password);
 }

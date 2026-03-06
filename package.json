@@ -8,6 +8,7 @@
     "race": "tsx src/race.ts",
     "agent-race": "tsx src/race.ts",
     "auth": "tsx src/auth.ts",
+    "setup-keychain": "tsx src/setup-keychain.ts",
     "inspect": "tsx src/inspect.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -24,11 +25,16 @@
   },
   "homepage": "https://github.com/jrichyrich/bear-lake-booker#readme",
   "devDependencies": {
+    "@types/cheerio": "^0.22.35",
+    "@types/jest": "^30.0.0",
     "@types/node": "^25.3.3",
+    "jest": "^30.2.0",
+    "ts-jest": "^29.4.6",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   },
   "dependencies": {
+    "cheerio": "^1.2.0",
     "playwright": "^1.58.2",
     "playwright-extra": "^4.3.6",
     "puppeteer-extra-plugin-stealth": "^2.11.2"
