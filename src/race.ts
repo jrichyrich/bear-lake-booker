@@ -400,13 +400,21 @@ async function warmUpAgents(targetSites: string[]): Promise<void> {
     if (!SNIPE_MODE) {
       // Standard mode: navigate to park page and fill search form
       await page.goto(PARK_URL, { waitUntil: 'domcontentloaded' });
-      await ensureLoggedIn(page, label);
+      const loggedIn = await ensureLoggedIn(page, label);
+      if (!loggedIn) {
+        console.error(`\n❌ CRITICAL ERROR: Session expired. Run "npm run auth" manually to capture a new session before racing.\n`);
+        process.exit(1);
+      }
       await primeSearchForm(page, LOOP, TARGET_DATE, STAY_LENGTH, label);
       console.log(`${label}✅ Pre-warmed and ready. Form filled.`);
     } else {
       // Snipe mode: just navigate to park page to warm session
       await page.goto(PARK_URL, { waitUntil: 'domcontentloaded' });
-      await ensureLoggedIn(page, label);
+      const loggedIn = await ensureLoggedIn(page, label);
+      if (!loggedIn) {
+        console.error(`\n❌ CRITICAL ERROR: Session expired. Run "npm run auth" manually to capture a new session before racing.\n`);
+        process.exit(1);
+      }
       console.log(`${label}✅ Pre-warmed. Will snipe ${targetSites[i] ?? 'first available'} at fire time.`);
     }
   }
@@ -509,7 +517,11 @@ async function launchCapture(targetSites: string[]) {
     const agent = async () => {
       const label = `[Agent ${agentId}] `;
       await page.goto(PARK_URL, { waitUntil: 'domcontentloaded' });
-      await ensureLoggedIn(page, label);
+      const loggedIn = await ensureLoggedIn(page, label);
+      if (!loggedIn) {
+        console.error(`\n❌ CRITICAL ERROR: Session expired. Run "npm run auth" manually to capture a new session before racing.\n`);
+        process.exit(1);
+      }
       await primeSearchForm(page, LOOP, TARGET_DATE, STAY_LENGTH, label);
       await runAgent(agentId, page, targetSites[i] ?? null);
     };

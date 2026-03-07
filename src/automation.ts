@@ -1,6 +1,5 @@
 import { type BrowserContext, type Page } from 'playwright';
 import { PARK_URL, SESSION_FILE, SITE_DETAILS_URL_BASE } from './config';
-import { getReserveAmericaCredentials } from './keychain';
 import * as fs from 'fs';
 
 export type SiteSelection = {
@@ -26,35 +25,12 @@ export async function isErrorPage(page: Page): Promise<boolean> {
 
 export async function ensureLoggedIn(page: Page, agentLabel = ''): Promise<boolean> {
   const bodyText = (await page.textContent('body')) || '';
-  if (bodyText.includes('Sign Out') || bodyText.includes('My Account')) return true;
-
-  console.log(`${agentLabel}Not logged in. Attempting automated login...`);
-  const credentials = getReserveAmericaCredentials();
-  if (!credentials.password) {
-    console.error(`${agentLabel}No password found in Keychain. Login will be manual/guest.`);
-    return false;
+  if (bodyText.includes('Sign Out') || bodyText.includes('My Account')) {
+    console.log(`${agentLabel}✅ Session is valid and logged in.`);
+    return true;
   }
 
-  try {
-    await page.goto('https://utahstateparks.reserveamerica.com/memberSignIn.do', { waitUntil: 'domcontentloaded' });
-    await page.waitForSelector('input[aria-label="Email"], #AEmailAddress, #email', { timeout: 10000 });
-    await page.fill('input[aria-label="Email"], #AEmailAddress, #email', credentials.username);
-    await page.fill('input[aria-label="Password"], #APassword, #password', credentials.password);
-
-    const btn = page.locator('button:has-text("Sign In"), input[type="submit"][value="Sign In"]').first();
-    await Promise.all([
-      page.waitForNavigation({ waitUntil: 'networkidle', timeout: 15000 }).catch(() => { }),
-      btn.click(),
-    ]);
-
-    const postLoginText = (await page.textContent('body')) || '';
-    if (postLoginText.includes('Sign Out') || postLoginText.includes('My Account')) {
-      console.log(`${agentLabel}✅ Login successful.`);
-      return true;
-    }
-  } catch (e) {
-    console.error(`${agentLabel}Login failed: ${e}`);
-  }
+  console.error(`${agentLabel}❌ CRITICAL ERROR: Session is expired or invalid.`);
   return false;
 }
 
