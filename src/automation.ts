@@ -1,5 +1,5 @@
 import { type BrowserContext, type Page } from 'playwright';
-import { PARK_URL, SESSION_FILE } from './config';
+import { PARK_URL, SESSION_FILE, SITE_DETAILS_URL_BASE } from './config';
 import { getReserveAmericaCredentials } from './keychain';
 import * as fs from 'fs';
 
@@ -43,7 +43,7 @@ export async function ensureLoggedIn(page: Page, agentLabel = ''): Promise<boole
 
     const btn = page.locator('button:has-text("Sign In"), input[type="submit"][value="Sign In"]').first();
     await Promise.all([
-      page.waitForNavigation({ waitUntil: 'networkidle', timeout: 15000 }).catch(() => {}),
+      page.waitForNavigation({ waitUntil: 'networkidle', timeout: 15000 }).catch(() => { }),
       btn.click(),
     ]);
 
@@ -176,19 +176,19 @@ export async function prepareOrderDetails(page: Page, agentLabel = ''): Promise<
   // 1. Occupants (Click, Type, and Trigger Change)
   const occupantsInput = page.locator('#numoccupants, input[name="numOccupants"], #occupantCount').first();
   if ((await occupantsInput.count()) > 0) {
-    await occupantsInput.click({ force: true }).catch(() => {});
-    await occupantsInput.fill('1').catch(() => {});
-    await occupantsInput.dispatchEvent('change').catch(() => {});
-    await occupantsInput.dispatchEvent('blur').catch(() => {});
+    await occupantsInput.click({ force: true }).catch(() => { });
+    await occupantsInput.fill('1').catch(() => { });
+    await occupantsInput.dispatchEvent('change').catch(() => { });
+    await occupantsInput.dispatchEvent('blur').catch(() => { });
   }
 
   // 2. Vehicles
   const numVehicles = page.locator('#numvehicles, input[name="numVehicles"]').first();
   if ((await numVehicles.count()) > 0) {
-    await numVehicles.click({ force: true }).catch(() => {});
-    await numVehicles.fill('1').catch(() => {});
-    await numVehicles.dispatchEvent('change').catch(() => {});
-    await numVehicles.dispatchEvent('blur').catch(() => {});
+    await numVehicles.click({ force: true }).catch(() => { });
+    await numVehicles.fill('1').catch(() => { });
+    await numVehicles.dispatchEvent('change').catch(() => { });
+    await numVehicles.dispatchEvent('blur').catch(() => { });
   }
 
   // 3. Mandatory Checkboxes (Policies, etc.)
@@ -197,9 +197,9 @@ export async function prepareOrderDetails(page: Page, agentLabel = ''): Promise<
     const isVisible = await cb.isVisible();
     if (isVisible) {
       console.log(`${agentLabel}Clicking mandatory checkbox...`);
-      await cb.click({ force: true }).catch(() => {});
+      await cb.click({ force: true }).catch(() => { });
       const id = await cb.getAttribute('id');
-      if (id) await page.click(`label[for="${id}"]`, { force: true }).catch(() => {});
+      if (id) await page.click(`label[for="${id}"]`, { force: true }).catch(() => { });
     }
   }
 
@@ -240,8 +240,8 @@ export async function addToCart(page: Page, agentLabel = ''): Promise<boolean> {
   const primaryBtn = page.locator('button.primary, .btn-primary, .btn-success').first();
   if ((await primaryBtn.count()) > 0) {
     console.log(`${agentLabel}Trying fallback primary button...`);
-    await primaryBtn.click().catch(() => {});
-    await page.waitForLoadState('networkidle').catch(() => {});
+    await primaryBtn.click().catch(() => { });
+    await page.waitForLoadState('networkidle').catch(() => { });
   }
 
   return page.evaluate(
@@ -310,13 +310,136 @@ export async function injectSession(context: BrowserContext) {
   if (state.origins && state.origins.length > 0) {
     const page = await context.newPage();
     for (const origin of state.origins) {
-      await page.goto(origin.origin, { waitUntil: 'domcontentloaded' }).catch(() => {});
+      await page.goto(origin.origin, { waitUntil: 'domcontentloaded' }).catch(() => { });
       await page.evaluate((data) => {
         for (const item of data.localStorage) {
           localStorage.setItem(item.name, item.value);
         }
-      }, origin).catch(() => {});
+      }, origin).catch(() => { });
     }
     await page.close();
+  }
+}
+
+/**
+ * Constructs a direct URL to a specific site's details/booking page,
+ * bypassing the search flow entirely.
+ */
+export function buildDirectSiteUrl(siteId: string, targetDate: string, stayLength: string): string {
+  const params = new URLSearchParams({
+    contractCode: 'UT',
+    parkId: '343061',
+    siteId,
+    arvdate: targetDate,
+    lengthOfStay: stayLength,
+  });
+  return `${SITE_DETAILS_URL_BASE}?${params.toString()}`;
+}
+
+/**
+ * Submits the search form in a tight retry loop (default: every 200ms for 3s).
+ * Returns true as soon as search results appear.
+ */
+export async function submitWithRetry(
+  page: Page,
+  agentLabel = '',
+  maxDurationMs = 3000,
+  intervalMs = 200,
+): Promise<boolean> {
+  const deadline = performance.now() + maxDurationMs;
+  let attempt = 0;
+
+  while (performance.now() < deadline) {
+    attempt++;
+    try {
+      await submitSearchForm(page);
+      // Check if results appeared
+      const hasResults = await page.evaluate(() => {
+        const body = document.body.textContent ?? '';
+        return (
+          Boolean(document.querySelector('#calendar .br')) ||
+          body.includes('0 site(s) available') ||
+          body.includes('beyond Reservation Window')
+        );
+      });
+
+      if (hasResults) {
+        console.log(`${agentLabel}Search results appeared on attempt ${attempt}.`);
+        return true;
+      }
+    } catch {
+      // Submit may fail if page isn't ready yet — retry
+    }
+
+    if (performance.now() < deadline) {
+      console.log(`${agentLabel}Retry ${attempt} (${intervalMs}ms)...`);
+      await sleep(intervalMs);
+    }
+  }
+
+  console.log(`${agentLabel}Submit retry exhausted after ${attempt} attempts.`);
+  return false;
+}
+
+/**
+ * Navigates directly to a site booking URL with retry logic.
+ * Returns true when the booking form is detected on the page.
+ */
+export async function snipeDirectUrl(
+  page: Page,
+  url: string,
+  agentLabel = '',
+  maxDurationMs = 3000,
+  intervalMs = 200,
+): Promise<boolean> {
+  const deadline = performance.now() + maxDurationMs;
+  let attempt = 0;
+
+  while (performance.now() < deadline) {
+    attempt++;
+    try {
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 5000 });
+      const ready = await page.evaluate(() =>
+        Boolean(document.querySelector('#booksiteform')) ||
+        Boolean(document.querySelector('#arrivaldate')),
+      );
+
+      if (ready) {
+        console.log(`${agentLabel}Site booking form loaded on attempt ${attempt}.`);
+        return true;
+      }
+
+      // Check for "not available" messaging — may need to retry
+      const notAvailable = await page.evaluate(() => {
+        const text = (document.body.textContent ?? '').toLowerCase();
+        return text.includes('not available') || text.includes('unavailable');
+      });
+      if (notAvailable && performance.now() >= deadline) {
+        console.log(`${agentLabel}Site not available after ${attempt} attempts.`);
+        return false;
+      }
+    } catch {
+      // Navigation timeout — retry
+    }
+
+    if (performance.now() < deadline) {
+      console.log(`${agentLabel}Snipe retry ${attempt} (${intervalMs}ms)...`);
+      await sleep(intervalMs);
+    }
+  }
+
+  console.log(`${agentLabel}Snipe retry exhausted after ${attempt} attempts.`);
+  return false;
+}
+
+/**
+ * Pre-warms TCP/TLS connections by making a lightweight HEAD request.
+ */
+export async function preWarmConnections(page: Page, agentLabel = '') {
+  try {
+    await page.evaluate((url) => fetch(url, { method: 'HEAD' }).catch(() => { }), PARK_URL);
+    console.log(`${agentLabel}Connection pre-warmed.`);
+  } catch {
+    // Non-critical — silently ignore
   }
 }

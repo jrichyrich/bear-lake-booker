@@ -21,6 +21,10 @@ import {
   continueToOrderDetails,
   addToCart,
   injectSession,
+  buildDirectSiteUrl,
+  submitWithRetry,
+  snipeDirectUrl,
+  preWarmConnections,
 } from './automation';
 
 const { values } = parseArgs({
@@ -42,6 +46,8 @@ const { values } = parseArgs({
     screenshotOnWin: { type: 'boolean', default: false },
     sequential: { type: 'boolean', default: false },
     sites: { type: 'string' },
+    snipe: { type: 'boolean', default: false },
+    warmup: { type: 'string', default: '5' },
     help: { type: 'boolean', short: 'h' },
   },
 });
@@ -59,7 +65,7 @@ Options:
   -o, --loop <string>           Campground loop name [default: BIRCH]
   -c, --concurrency <number>    Number of parallel agents [default: 10]
   -m, --monitorInterval <mins>  Poll via HTTP every X minutes until an exact-date opening appears
-  -t, --time <string>           Fire search at HH:MM:SS without HTTP preflight
+  -t, --time <string>           Fire search at HH:MM:SS (enables pre-warm mode)
   -b, --book                    Continue to site Order Details and stop there
   --dryRun                      Open site details only; never continue to Order Details
   --headed                      Run with visible browser
@@ -71,6 +77,8 @@ Options:
   --screenshotOnWin             Capture screenshot upon successful booking
   --sequential                  Book sites one at a time in a single browser
   --sites <csv>                 Target specific sites (e.g., BH03,BH07,BH09)
+  --snipe                       Direct URL sniping: bypass search, go straight to site URLs (requires --sites)
+  --warmup <minutes>            Minutes before --time to launch and pre-warm browsers [default: 5]
   -h, --help                    Show help
   `);
   process.exit(0);
@@ -92,6 +100,8 @@ const PROFILE_DIR = values.profileDir!;
 const RESET_PROFILES = values.resetProfiles!;
 const SCREENSHOT_ON_WIN = values.screenshotOnWin!;
 const SITE_ALLOWLIST: string[] = values.sites ? values.sites.split(',').map((s) => s.trim().toUpperCase()) : [];
+const SNIPE_MODE = values.snipe!;
+const WARMUP_MINUTES = parseInt(values.warmup!, 10);
 
 type HoldRecord = {
   agentId: number;
@@ -119,6 +129,9 @@ const runState: RunState = {
 };
 
 const activeContexts = new Map<number, BrowserContext>();
+
+// Pre-warmed pages — created during warm-up, reused at fire time
+const warmedPages = new Map<number, Page>();
 
 function isSiteAlreadyHeld(siteId: string): boolean {
   return runState.heldSites.has(siteId);
@@ -169,27 +182,57 @@ async function claimSuccess(agentId: number, siteId: string, stage: SuccessStage
 
 async function cancelRemainingAgents(excludeAgentId: number) {
   for (const [agentId, context] of activeContexts.entries()) {
-    if (agentId !== excludeAgentId) await context.close().catch(() => {});
+    if (agentId !== excludeAgentId) await context.close().catch(() => { });
   }
 }
 
-async function waitForTargetTime(targetTimeStr: string) {
-  const [targetHours = 0, targetMinutes = 0, targetSeconds = 0] = targetTimeStr.split(':').map(Number);
-  console.log(`Waiting for ${targetTimeStr}...`);
+// --- High-Resolution Timer ---
 
-  return new Promise<void>((resolve) => {
-    const interval = setInterval(() => {
-      const now = new Date();
-      if (now.getHours() === targetHours && now.getMinutes() === targetMinutes && now.getSeconds() >= targetSeconds) {
-        clearInterval(interval);
-        resolve();
-      }
-    }, 50);
-  });
+/**
+ * Parses a HH:MM:SS string into a Date object for today.
+ */
+function parseTargetTime(targetTimeStr: string): Date {
+  const [hours = 0, minutes = 0, seconds = 0] = targetTimeStr.split(':').map(Number);
+  const target = new Date();
+  target.setHours(hours, minutes, seconds, 0);
+  return target;
 }
 
+/**
+ * High-resolution wait using performance.now() for sub-ms precision.
+ * Switches from sleep-based polling to busy-wait in the final 100ms.
+ */
+async function waitForTargetTime(targetTimeStr: string) {
+  const target = parseTargetTime(targetTimeStr);
+  console.log(`Waiting for ${targetTimeStr} (${target.toLocaleTimeString()})...`);
+
+  // Coarse wait: sleep in 500ms intervals until 200ms before target
+  while (true) {
+    const remaining = target.getTime() - Date.now();
+    if (remaining <= 200) break;
+    await sleep(Math.min(remaining - 200, 500));
+  }
+
+  // Fine wait: busy-wait for the final 200ms
+  while (Date.now() < target.getTime()) {
+    // spin
+  }
+
+  console.log(`🔥 Firing now! (${new Date().toISOString()})`);
+}
+
+/**
+ * Returns milliseconds until the target time.
+ */
+function msUntilTargetTime(targetTimeStr: string): number {
+  const target = parseTargetTime(targetTimeStr);
+  return target.getTime() - Date.now();
+}
+
+// --- HTTP Availability Polling ---
+
 async function waitForAvailability(): Promise<SiteAvailability[]> {
-  for (;;) {
+  for (; ;) {
     const result = await searchAvailability({
       date: TARGET_DATE,
       length: STAY_LENGTH,
@@ -213,20 +256,22 @@ async function waitForAvailability(): Promise<SiteAvailability[]> {
   }
 }
 
-async function runAgent(agentId: number, context: BrowserContext, preferredSite: string | null) {
-  activeContexts.set(agentId, context);
-  const page = await context.newPage();
+// --- Agent Execution ---
+
+/**
+ * Standard agent flow: submit pre-warmed search form, parse results, book.
+ */
+async function runAgent(agentId: number, page: Page, preferredSite: string | null) {
   try {
     const label = `[Agent ${agentId}] `;
 
-    await page.goto(PARK_URL, { waitUntil: 'domcontentloaded' });
-    await ensureLoggedIn(page, label);
-
-    await primeSearchForm(page, LOOP, TARGET_DATE, STAY_LENGTH, label);
-    if (TARGET_TIME) await waitForTargetTime(TARGET_TIME);
-    await sleep(Math.random() * 200);
-    await submitSearchForm(page);
-    await waitForSearchResults(page);
+    // Submit with retry loop
+    const gotResults = await submitWithRetry(page, label);
+    if (!gotResults) {
+      // Fallback: single submit + standard wait
+      await submitSearchForm(page);
+      await waitForSearchResults(page);
+    }
 
     const candidates = await resolveTargetSites(page, TARGET_DATE, STAY_LENGTH);
     if (preferredSite) candidates.sort((a) => (a.site === preferredSite ? -1 : 1));
@@ -240,8 +285,8 @@ async function runAgent(agentId: number, context: BrowserContext, preferredSite:
 
         if (!AUTO_BOOK || DRY_RUN) {
           await claimSuccess(agentId, selection.site, 'site-details');
-          if (SCREENSHOT_ON_WIN) await page.screenshot({ path: `logs/agent-${agentId}-win-${Date.now()}.png` }).catch(() => {});
-          if (IS_HEADED) await page.waitForEvent('close').catch(() => {});
+          if (SCREENSHOT_ON_WIN) await page.screenshot({ path: `logs/agent-${agentId}-win-${Date.now()}.png` }).catch(() => { });
+          if (IS_HEADED) await page.waitForEvent('close').catch(() => { });
           return;
         }
 
@@ -251,14 +296,14 @@ async function runAgent(agentId: number, context: BrowserContext, preferredSite:
           if (await addToCart(page, label)) {
             await claimSuccess(agentId, selection.site, 'order-details');
             const screenshotPath = `logs/cart-agent-${agentId}-${selection.site}-${Date.now()}.png`;
-            await page.screenshot({ path: screenshotPath }).catch(() => {});
+            await page.screenshot({ path: screenshotPath }).catch(() => { });
             console.log(`${label}✅ Final hold secured in Shopping Cart! Screenshot: ${screenshotPath}`);
 
-            if (IS_HEADED) await page.waitForEvent('close').catch(() => {});
+            if (IS_HEADED) await page.waitForEvent('close').catch(() => { });
             return;
           } else {
             const errorPath = `logs/fail-cart-agent-${agentId}-${selection.site}-${Date.now()}.png`;
-            await page.screenshot({ path: errorPath }).catch(() => {});
+            await page.screenshot({ path: errorPath }).catch(() => { });
             console.log(`${label}Failed to move to Shopping Cart. Screenshot: ${errorPath}`);
           }
         }
@@ -266,10 +311,168 @@ async function runAgent(agentId: number, context: BrowserContext, preferredSite:
     }
   } catch (error) {
     console.error(`[Agent ${agentId}] Error: ${error}`);
-  } finally {
-    await context.close().catch(() => {});
   }
 }
+
+/**
+ * Snipe agent flow: bypass search, go directly to site booking URL.
+ */
+async function runSnipeAgent(agentId: number, page: Page, siteId: string) {
+  const label = `[Agent ${agentId}] `;
+  try {
+    const url = buildDirectSiteUrl(siteId, TARGET_DATE, STAY_LENGTH);
+    console.log(`${label}Sniping ${siteId} → ${url}`);
+
+    const loaded = await snipeDirectUrl(page, url, label);
+    if (!loaded) {
+      console.log(`${label}Failed to load site ${siteId} booking page.`);
+      return;
+    }
+
+    if (!AUTO_BOOK || DRY_RUN) {
+      await claimSuccess(agentId, siteId, 'site-details');
+      if (SCREENSHOT_ON_WIN) await page.screenshot({ path: `logs/snipe-${agentId}-${siteId}-${Date.now()}.png` }).catch(() => { });
+      if (IS_HEADED) await page.waitForEvent('close').catch(() => { });
+      return;
+    }
+
+    if (await continueToOrderDetails(page, TARGET_DATE, STAY_LENGTH)) {
+      console.log(`${label}Reached Order Details for ${siteId}. Finalizing hold...`);
+
+      if (await addToCart(page, label)) {
+        await claimSuccess(agentId, siteId, 'order-details');
+        const screenshotPath = `logs/snipe-cart-${agentId}-${siteId}-${Date.now()}.png`;
+        await page.screenshot({ path: screenshotPath }).catch(() => { });
+        console.log(`${label}✅ Final hold secured in Shopping Cart! Screenshot: ${screenshotPath}`);
+
+        if (IS_HEADED) await page.waitForEvent('close').catch(() => { });
+        return;
+      } else {
+        const errorPath = `logs/snipe-fail-${agentId}-${siteId}-${Date.now()}.png`;
+        await page.screenshot({ path: errorPath }).catch(() => { });
+        console.log(`${label}Failed to move to Shopping Cart. Screenshot: ${errorPath}`);
+      }
+    }
+  } catch (error) {
+    console.error(`${label}Error: ${error}`);
+  }
+}
+
+// --- Pre-Warm / Fire Pipeline ---
+
+/**
+ * Phase 1: Launch browsers, inject sessions, navigate to park page,
+ * fill search forms. Returns pre-warmed pages ready to fire.
+ */
+async function warmUpAgents(targetSites: string[]): Promise<void> {
+  const hasSession = fs.existsSync(SESSION_FILE);
+  if (PROFILE_MODE === 'persistent') {
+    if (!fs.existsSync(PROFILE_DIR)) fs.mkdirSync(PROFILE_DIR, { recursive: true });
+  }
+
+  let browser: any = null;
+  if (PROFILE_MODE !== 'persistent') browser = await chromium.launch({ headless: !IS_HEADED });
+
+  for (let i = 0; i < CONCURRENCY; i++) {
+    const agentId = i + 1;
+    const label = `[Agent ${agentId}] `;
+    let context: BrowserContext;
+
+    if (PROFILE_MODE === 'persistent') {
+      const path = `${PROFILE_DIR}/agent-${agentId}`;
+      const options = { headless: !IS_HEADED, timezoneId: 'America/Denver' };
+      context = await chromium.launchPersistentContext(path, options);
+      if (hasSession) {
+        console.log(`${label}Refreshing session state...`);
+        await injectSession(context);
+      }
+    } else {
+      context = await browser!.newContext({
+        storageState: hasSession ? SESSION_FILE : undefined,
+        timezoneId: 'America/Denver',
+      });
+    }
+
+    activeContexts.set(agentId, context);
+    const page = await context.newPage();
+    warmedPages.set(agentId, page);
+
+    if (!SNIPE_MODE) {
+      // Standard mode: navigate to park page and fill search form
+      await page.goto(PARK_URL, { waitUntil: 'domcontentloaded' });
+      await ensureLoggedIn(page, label);
+      await primeSearchForm(page, LOOP, TARGET_DATE, STAY_LENGTH, label);
+      console.log(`${label}✅ Pre-warmed and ready. Form filled.`);
+    } else {
+      // Snipe mode: just navigate to park page to warm session
+      await page.goto(PARK_URL, { waitUntil: 'domcontentloaded' });
+      await ensureLoggedIn(page, label);
+      console.log(`${label}✅ Pre-warmed. Will snipe ${targetSites[i] ?? 'first available'} at fire time.`);
+    }
+  }
+
+  // Store browser reference for cleanup
+  if (browser) (globalThis as any).__sharedBrowser = browser;
+}
+
+/**
+ * Phase 2: Fire all agents simultaneously.
+ * Called at --time after pre-warm is complete.
+ */
+async function fireAgents(targetSites: string[]): Promise<void> {
+  console.log(`\n🔥 FIRING ${CONCURRENCY} agents! (${new Date().toISOString()})\n`);
+
+  // Pre-warm connections 10s before fire (already at fire time if no --time)
+  const preWarmPromises: Promise<void>[] = [];
+  for (const [agentId, page] of warmedPages.entries()) {
+    preWarmPromises.push(preWarmConnections(page, `[Agent ${agentId}] `));
+  }
+  await Promise.all(preWarmPromises);
+
+  const promises: Promise<void>[] = [];
+  for (let i = 0; i < CONCURRENCY; i++) {
+    const agentId = i + 1;
+    const page = warmedPages.get(agentId);
+    if (!page) continue;
+
+    if (SNIPE_MODE) {
+      const siteId = targetSites[i];
+      if (!siteId) {
+        console.log(`[Agent ${agentId}] No site assigned for sniping — skipping.`);
+        continue;
+      }
+      // Stagger by 50ms to avoid exact-same-millisecond collision
+      promises.push(sleep(i * 50).then(() => runSnipeAgent(agentId, page, siteId)));
+    } else {
+      // Standard mode: submit the pre-filled form
+      promises.push(sleep(i * 50).then(() => runAgent(agentId, page, targetSites[i] ?? null)));
+    }
+  }
+
+  await Promise.all(promises);
+
+  // Cleanup
+  for (const [, context] of activeContexts.entries()) {
+    await context.close().catch(() => { });
+  }
+  const browser = (globalThis as any).__sharedBrowser;
+  if (browser) await browser.close();
+
+  writeRunSummary({
+    timestamp: new Date().toISOString(),
+    targetDate: TARGET_DATE,
+    loop: LOOP,
+    agentCount: CONCURRENCY,
+    bookingMode: BOOKING_MODE,
+    maxHolds: MAX_HOLDS,
+    holds: runState.holds,
+    winningAgent: runState.winningAgentId,
+    winningSite: runState.holds[0]?.site ?? null,
+    status: runState.holds.length > 0 ? 'success' : 'failure',
+  });
+}
+
+// --- Legacy Launch (non-timed mode) ---
 
 async function launchCapture(targetSites: string[]) {
   const hasSession = fs.existsSync(SESSION_FILE);
@@ -299,10 +502,25 @@ async function launchCapture(targetSites: string[]) {
         timezoneId: 'America/Denver',
       });
     }
-    promises.push(sleep(i * 300).then(() => runAgent(agentId, context, targetSites[i] ?? null)));
+    activeContexts.set(agentId, context);
+    const page = await context.newPage();
+
+    // Legacy flow: navigate, fill, submit all in one go
+    const agent = async () => {
+      const label = `[Agent ${agentId}] `;
+      await page.goto(PARK_URL, { waitUntil: 'domcontentloaded' });
+      await ensureLoggedIn(page, label);
+      await primeSearchForm(page, LOOP, TARGET_DATE, STAY_LENGTH, label);
+      await runAgent(agentId, page, targetSites[i] ?? null);
+    };
+
+    promises.push(sleep(i * 300).then(agent));
   }
 
   await Promise.all(promises);
+  for (const [, context] of activeContexts.entries()) {
+    await context.close().catch(() => { });
+  }
   if (browser) await browser.close();
   writeRunSummary({
     timestamp: new Date().toISOString(),
@@ -318,13 +536,56 @@ async function launchCapture(targetSites: string[]) {
   });
 }
 
+// --- Entry Point ---
+
 async function startRace() {
   console.log('--- Bear Lake Sniper Mode ---');
+
   if (TARGET_TIME) {
-    await launchCapture([]);
+    // === PRE-WARM PIPELINE ===
+    const msUntilFire = msUntilTargetTime(TARGET_TIME);
+    const warmupMs = WARMUP_MINUTES * 60_000;
+
+    if (msUntilFire <= 0) {
+      console.log(`Target time ${TARGET_TIME} has already passed. Launching immediately.`);
+      await warmUpAgents(SITE_ALLOWLIST);
+      await fireAgents(SITE_ALLOWLIST);
+      return;
+    }
+
+    // Wait until warmup window opens
+    const waitBeforeWarmup = msUntilFire - warmupMs;
+    if (waitBeforeWarmup > 0) {
+      console.log(`Waiting ${Math.round(waitBeforeWarmup / 1000)}s until warm-up window opens...`);
+      await sleep(waitBeforeWarmup);
+    }
+
+    console.log(`\n🔧 WARM-UP PHASE: Launching ${CONCURRENCY} agents...`);
+    await warmUpAgents(SITE_ALLOWLIST);
+
+    // Countdown with logging
+    const remaining = msUntilTargetTime(TARGET_TIME);
+    if (remaining > 10_000) {
+      console.log(`\n⏳ All agents pre-warmed. Waiting ${Math.round(remaining / 1000)}s until fire time (${TARGET_TIME})...`);
+    }
+
+    // Pre-warm connections at T-10s
+    const preWarmDelay = remaining - 10_000;
+    if (preWarmDelay > 0) {
+      await sleep(preWarmDelay);
+      console.log(`\n🌐 T-10s: Pre-warming connections...`);
+      for (const [agentId, page] of warmedPages.entries()) {
+        await preWarmConnections(page, `[Agent ${agentId}] `);
+      }
+    }
+
+    // High-res wait for exact fire time
+    await waitForTargetTime(TARGET_TIME);
+    await fireAgents(SITE_ALLOWLIST);
     return;
   }
 
+  // === HYBRID MODE (HTTP monitor → browser launch) ===
   const result = await waitForAvailability();
   if (result.length > 0) {
     let targetSites = result.map((s) => s.site);

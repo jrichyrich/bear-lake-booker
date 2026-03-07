@@ -39,17 +39,17 @@ describe('ReserveAmerica Parser', () => {
 
   test('should identify available sites for exact date', () => {
     const result = parseSearchResult(mockHtmlAvailable, targetDate);
-    
+
     expect(result.totalSites).toBe(2);
     expect(result.availableSites.length).toBe(2);
     expect(result.exactDateMatches.length).toBe(2);
-    expect(result.exactDateMatches[0].site).toBe('BH01');
-    expect(result.exactDateMatches[1].site).toBe('BH02');
+    expect(result.exactDateMatches[0]!.site).toBe('BH01');
+    expect(result.exactDateMatches[1]!.site).toBe('BH02');
   });
 
   test('should filter out unavailable sites', () => {
     const result = parseSearchResult(mockHtmlUnavailable, targetDate);
-    
+
     expect(result.totalSites).toBe(1);
     expect(result.availableSites.length).toBe(0);
     expect(result.exactDateMatches.length).toBe(0);
@@ -71,11 +71,11 @@ describe('ReserveAmerica Parser', () => {
       </div>
     `;
     const result = parseSearchResult(mockHtmlNearby, targetDate);
-    
+
     expect(result.exactDateMatches.length).toBe(0);
     expect(result.availableSites.length).toBe(1);
-    expect(result.availableSites[0].site).toBe('BH03');
-    expect(result.availableSites[0].availableDates).toContain('07/23/2026');
+    expect(result.availableSites[0]!.site).toBe('BH03');
+    expect(result.availableSites[0]!.availableDates).toContain('07/23/2026');
   });
 
   test('should throw error if calendar is missing', () => {
