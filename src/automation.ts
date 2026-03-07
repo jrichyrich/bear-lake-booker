@@ -25,7 +25,7 @@ export async function isErrorPage(page: Page): Promise<boolean> {
 
 export async function ensureLoggedIn(page: Page, agentLabel = ''): Promise<boolean> {
   const bodyText = (await page.textContent('body')) || '';
-  if (bodyText.includes('Sign Out') || bodyText.includes('My Account')) {
+  if (bodyText.includes('Sign Out')) {
     console.log(`${agentLabel}✅ Session is valid and logged in.`);
     return true;
   }
