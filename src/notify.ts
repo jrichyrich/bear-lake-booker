@@ -1,4 +1,4 @@
-import { execFileSync } from 'child_process';
+import { spawn } from 'child_process';
 import { RECIPIENT } from './config';
 
 export type SuccessStage = 'site-details' | 'order-details' | 'monitoring';
@@ -40,34 +40,44 @@ function formatContent(
 }
 
 /**
- * Sends a macOS desktop notification via osascript.
+ * Sends a macOS desktop notification asynchronously.
  */
 function sendDesktopNotification(content: NotificationContent) {
-  try {
-    const escaped = content.message.replace(/"/g, '\\"');
-    execFileSync('osascript', [
-      '-e', 
-      `display notification "${escaped}" with title "${content.title}" sound name "Glass"`
-    ]);
-  } catch {
-    console.warn(`${content.agentLabel}Desktop notification failed.`);
-  }
+  // Sanitize message for AppleScript double-quote enclosure
+  const sanitized = content.message.replace(/["\\]/g, ''); 
+  
+  const process = spawn('osascript', [
+    '-e', 
+    `display notification "${sanitized}" with title "${content.title}" sound name "Glass"`
+  ]);
+
+  process.on('error', () => {
+    console.warn(`${content.agentLabel}Desktop notification failed to spawn.`);
+  });
 }
 
 /**
- * Sends an iMessage via osascript.
+ * Sends an iMessage asynchronously.
  */
 function sendIMessage(content: NotificationContent) {
-  try {
-    const escaped = content.message.replace(/"/g, '\\"');
-    execFileSync('osascript', [
-      '-e', 
-      `tell application "Messages" to send "${escaped}" to buddy "${RECIPIENT}"`
-    ]);
-    console.log(`${content.agentLabel}iMessage sent to ${RECIPIENT}`);
-  } catch {
-    console.warn(`${content.agentLabel}iMessage failed.`);
-  }
+  const sanitized = content.message.replace(/["\\]/g, '');
+
+  const process = spawn('osascript', [
+    '-e', 
+    `tell application "Messages" to send "${sanitized}" to buddy "${RECIPIENT}"`
+  ]);
+
+  process.on('error', () => {
+    console.warn(`${content.agentLabel}iMessage failed to spawn.`);
+  });
+
+  process.on('exit', (code) => {
+    if (code === 0) {
+      console.log(`${content.agentLabel}iMessage sent to ${RECIPIENT}`);
+    } else {
+      console.warn(`${content.agentLabel}iMessage failed with exit code ${code}.`);
+    }
+  });
 }
 
 /**

@@ -5,11 +5,15 @@ import { SESSION_FILE, SESSION_DIR } from './config';
 
 /**
  * Returns the absolute path to the sessions directory.
+ * Ensures the directory exists with restricted permissions (700).
  */
 export function getSessionDir(): string {
   const dir = resolve(process.cwd(), SESSION_DIR);
   if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  } else {
+    // Ensure existing directory has correct permissions
+    fs.chmodSync(dir, 0o700);
   }
   return dir;
 }
@@ -32,9 +36,19 @@ export function getSessionPath(account?: string): string {
 
 /**
  * Checks if a session file exists for a given account.
+ * If it exists, ensures it has restricted permissions (600).
  */
 export function sessionExists(account?: string): boolean {
-  return fs.existsSync(getSessionPath(account));
+  const path = getSessionPath(account);
+  const exists = fs.existsSync(path);
+  if (exists) {
+    try {
+      fs.chmodSync(path, 0o600);
+    } catch {
+      // Ignore errors if permissions can't be set
+    }
+  }
+  return exists;
 }
 
 /**
