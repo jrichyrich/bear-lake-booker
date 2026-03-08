@@ -6,9 +6,10 @@ chromium.use(StealthPlugin());
 import { parseArgs } from 'util';
 import { searchAvailability } from './reserveamerica';
 import { notifySuccess } from './notify';
-import { getSessionPath, startHeartbeat, sessionExists } from './session-utils';
+import { getSessionPath, startHeartbeat, sessionExists, getSessionExpiryInfo } from './session-utils';
+import { performAutoLogin } from './auth';
 import { PARK_URL } from './config';
-import { assertBookingWindow } from './timer-utils';
+import { assertBookingWindow, getDynamicMaxDate, getDynamicRandomDate } from './timer-utils';
 
 const { values } = parseArgs({
   options: {
@@ -19,14 +20,36 @@ const { values } = parseArgs({
   },
 });
 
-const TARGET_DATE = values.date!;
+let TARGET_DATE = values.date!;
 const STAY_LENGTH = values.length!;
 const LOOP = values.loop!;
 const INTERVAL_MINS = values.monitorInterval ? parseInt(values.monitorInterval, 10) : null;
 
+if (TARGET_DATE.toLowerCase() === 'max') {
+  TARGET_DATE = getDynamicMaxDate();
+  console.log(`Dynamic date 'max' resolved to: ${TARGET_DATE}`);
+} else if (TARGET_DATE.toLowerCase() === 'random') {
+  TARGET_DATE = getDynamicRandomDate();
+  console.log(`Dynamic date 'random' resolved to: ${TARGET_DATE}`);
+}
+
 async function main() {
   console.log(`\n--- Bear Lake Monitoring Mode ---`);
   console.log(`Target: ${TARGET_DATE} (${STAY_LENGTH} nights) in ${LOOP} loop`);
+
+  const { isExpired, earliestExpiry } = getSessionExpiryInfo(undefined);
+
+  if (isExpired) {
+    console.log(`⚠️  WARNING: Default session file is expired or missing. Attempting auto-login...`);
+    try {
+      await performAutoLogin([]);
+    } catch (e: any) {
+      console.error(`❌ Auto-login failed: ${e.message}`);
+      process.exit(1);
+    }
+  } else if (earliestExpiry) {
+    console.log(`Session valid until: ${earliestExpiry.toLocaleString()}`);
+  }
 
   // Optional: Background heartbeat to keep session alive during long monitoring
   if (INTERVAL_MINS && sessionExists()) {

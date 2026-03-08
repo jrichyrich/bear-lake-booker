@@ -64,3 +64,38 @@ export function assertBookingWindow(targetDateStr: string) {
     throw new Error(`The booking window for ${targetDateStr} has not opened yet. It opens on ${windowOpenDate.toLocaleString()} (4 months prior at 8:00 AM).`);
   }
 }
+
+/**
+ * Calculates the maximum allowed booking date (exactly 4 months from today).
+ * Returns the date as a formatted string: MM/DD/YYYY
+ */
+export function getDynamicMaxDate(): string {
+  const now = new Date();
+  const maxDate = new Date(now.getFullYear(), now.getMonth() + 4, now.getDate());
+
+  const month = (maxDate.getMonth() + 1).toString().padStart(2, '0');
+  const day = maxDate.getDate().toString().padStart(2, '0');
+  const year = maxDate.getFullYear();
+
+  return `${month}/${day}/${year}`;
+}
+
+/**
+ * Calculates a random valid booking date between tomorrow and 4 months from today.
+ * Returns the date as a formatted string: MM/DD/YYYY
+ */
+export function getDynamicRandomDate(): string {
+  const now = new Date();
+
+  const minDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+  const maxDate = new Date(now.getFullYear(), now.getMonth() + 4, now.getDate());
+
+  const randomTimestamp = minDate.getTime() + Math.random() * (maxDate.getTime() - minDate.getTime());
+  const randomDate = new Date(randomTimestamp);
+
+  const month = (randomDate.getMonth() + 1).toString().padStart(2, '0');
+  const day = randomDate.getDate().toString().padStart(2, '0');
+  const year = randomDate.getFullYear();
+
+  return `${month}/${day}/${year}`;
+}

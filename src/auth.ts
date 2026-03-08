@@ -48,7 +48,7 @@ async function launchBrowserForAccount(account?: string): Promise<ActiveSession>
   const sessionFile = getSessionFile(account);
   const sessionPath = getSessionPath(account);
   const themeArgs = getThemeArgs(account);
-  
+
   const browser = await chromium.launch({ headless: false, args: themeArgs });
   const context = await browser.newContext({ timezoneId: 'America/Denver' });
   const page = await context.newPage();
@@ -93,7 +93,7 @@ async function waitForUserCompletion(activeSessions: ActiveSession[]): Promise<b
       session.browser.on('disconnected', () => resolvePromise());
     }
   });
-  
+
   return areBrowsersOpen;
 }
 
@@ -113,8 +113,77 @@ async function saveSessions(activeSessions: ActiveSession[]) {
   }
 }
 
-void setupAuth().catch((error) => {
-  const message = error instanceof Error ? error.message : String(error);
-  console.error(message);
-  process.exitCode = 1;
-});
+/**
+ * Attempts to automatically log in the given accounts using stored keychain credentials.
+ * Throws an error if auto-login fails (e.g., due to a CAPTCHA or missing credentials).
+ */
+export async function performAutoLogin(accounts: string[]): Promise<void> {
+  console.log(`\n🔄 Attempting auto-renewal for: ${accounts.join(', ')}`);
+
+  const browsersToClose: any[] = [];
+
+  try {
+    for (const account of accounts) {
+      const sessionPath = getSessionPath(account);
+      const themeArgs = getThemeArgs(account);
+
+      console.log(`[Auto-Login] Launching background headless browser for ${account}...`);
+      // Use headless for auto-login to be unobtrusive
+      const browser = await chromium.launch({ headless: true, args: themeArgs });
+      browsersToClose.push(browser);
+
+      const context = await browser.newContext({ timezoneId: 'America/Denver' });
+      const page = await context.newPage();
+
+      await page.goto(LOGIN_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
+
+      const creds = getReserveAmericaCredentials(account);
+      if (!creds.username || !creds.password) {
+        throw new Error(`Missing keychain credentials for ${account}. Please run "npm run auth" manually to set them.`);
+      }
+
+      console.log(`[Auto-Login] Filling credentials for ${account}...`);
+      const emailSelector = 'input[aria-label="Email"], input[placeholder*="user name"], #email';
+      const passwordSelector = 'input[aria-label="Password"], input[type="password"]';
+
+      await page.waitForSelector(emailSelector, { timeout: 10000 });
+      await page.fill(emailSelector, creds.username);
+      await page.fill(passwordSelector, creds.password);
+
+      console.log(`[Auto-Login] Submitting form...`);
+      // Find and click the sign in button programmatically
+      const submitSelector = 'button[type="submit"]:has-text("Sign In"), button:has-text("Sign in")';
+      await page.waitForSelector(submitSelector, { timeout: 5000 });
+
+      await Promise.all([
+        page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 15000 }),
+        page.click(submitSelector)
+      ]);
+
+      // Wait a moment for any post-login redirects or CAPTCHAs to settle
+      await page.waitForTimeout(3000);
+
+      console.log(`[Auto-Login] Verifying session...`);
+      const isValid = await validateSessionActive(page);
+
+      if (!isValid) {
+        throw new Error(`Auto-login failed for ${account}. ReserveAmerica may have blocked the request or required a CAPTCHA. Please run "npm run auth" manually.`);
+      }
+
+      await context.storageState({ path: sessionPath });
+      console.log(`✅ [Auto-Login] Successfully renewed session for ${account} and saved to ${sessionPath}.`);
+    }
+  } finally {
+    for (const browser of browsersToClose) {
+      await browser.close().catch(() => { });
+    }
+  }
+}
+
+if (require.main === module || (process.argv[1] && process.argv[1].endsWith('auth.ts'))) {
+  void setupAuth().catch((error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(message);
+    process.exitCode = 1;
+  });
+}

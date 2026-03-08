@@ -13,6 +13,7 @@ import { notifySuccess, type SuccessStage } from './notify';
 import { writeRunSummary } from './reporter';
 import { getThemeArgs } from './theme';
 import { getSessionFile, injectSessionState, getSessionExpiryInfo, startHeartbeat } from './session-utils';
+import { performAutoLogin } from './auth';
 import {
   sleep,
   ensureLoggedIn,
@@ -32,6 +33,8 @@ import {
   msUntilTargetTime,
   waitForTargetTime,
   assertBookingWindow,
+  getDynamicMaxDate,
+  getDynamicRandomDate,
 } from './timer-utils';
 
 const { values } = parseArgs({
@@ -93,12 +96,21 @@ Options:
   process.exit(0);
 }
 
-const TARGET_DATE = values.date!;
+let TARGET_DATE = values.date!;
 const STAY_LENGTH = values.length!;
 const LOOP = values.loop!;
 const CONCURRENCY = parseInt(values.concurrency!, 10);
 const TARGET_TIME = values.time;
 const MONITOR_INTERVAL_MINS = values.monitorInterval ? parseInt(values.monitorInterval, 10) : null;
+
+if (TARGET_DATE.toLowerCase() === 'max') {
+  TARGET_DATE = getDynamicMaxDate();
+  console.log(`Dynamic date 'max' resolved to: ${TARGET_DATE}`);
+} else if (TARGET_DATE.toLowerCase() === 'random') {
+  TARGET_DATE = getDynamicRandomDate();
+  console.log(`Dynamic date 'random' resolved to: ${TARGET_DATE}`);
+}
+
 const AUTO_BOOK = values.book!;
 const DRY_RUN = values.dryRun!;
 const IS_HEADED = values.headed!;
@@ -381,10 +393,17 @@ async function warmUpAgents(targetSites: string[]): Promise<void> {
     const label = `[Agent ${agentId}] `;
 
     const sessionFile = getAgentSessionFile(agentId);
-    const { isExpired, earliestExpiry } = getSessionExpiryInfo(ACCOUNTS_LIST[(agentId - 1) % ACCOUNTS_LIST.length] || undefined);
+    const accountName = ACCOUNTS_LIST[(agentId - 1) % ACCOUNTS_LIST.length];
+    const { isExpired, earliestExpiry } = getSessionExpiryInfo(accountName);
 
     if (isExpired) {
       console.error(`${label}⚠️  WARNING: Local session file is expired or missing. Attempting auto-login...`);
+      try {
+        await performAutoLogin(accountName ? [accountName] : []);
+      } catch (e: any) {
+        console.error(`${label}❌ Auto-login failed: ${e.message}`);
+        process.exit(1);
+      }
     } else if (earliestExpiry) {
       console.log(`${label}Session valid until: ${earliestExpiry.toLocaleString()}`);
     }
@@ -397,10 +416,20 @@ async function warmUpAgents(targetSites: string[]): Promise<void> {
     warmedPages.set(agentId, page);
 
     await page.goto(PARK_URL, { waitUntil: 'domcontentloaded' });
-    const loggedIn = await ensureLoggedIn(page, label);
+    let loggedIn = await ensureLoggedIn(page, label);
     if (!loggedIn) {
-      console.error(`\n❌ CRITICAL ERROR: Session expired for Agent ${agentId}. Run "npm run auth" manually.\n`);
-      process.exit(1);
+      console.error(`\n⚠️  WARNING: Server rejected session for Agent ${agentId}. Attempting auto-login...\n`);
+      try {
+        await performAutoLogin(accountName ? [accountName] : []);
+        // Re-inject the fresh session into the existing context
+        await injectSessionState(context, sessionFile);
+        await page.goto(PARK_URL, { waitUntil: 'domcontentloaded' });
+        loggedIn = await ensureLoggedIn(page, label);
+        if (!loggedIn) throw new Error('Auto-login succeeded but session still invalid.');
+      } catch (e: any) {
+        console.error(`\n❌ CRITICAL ERROR: Auto-login failed for Agent ${agentId}: ${e.message}\n`);
+        process.exit(1);
+      }
     }
 
     // Start background heartbeat to keep JSESSIONID alive until fire time
