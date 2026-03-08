@@ -6,6 +6,7 @@ chromium.use(StealthPlugin());
 import { resolve } from 'path';
 import { getReserveAmericaCredentials } from './keychain';
 import * as util from 'util';
+import { getThemeArgs } from './theme';
 
 const LOGIN_URL = 'https://utahstateparks.reserveamerica.com/memberSignIn.do';
 
@@ -17,63 +18,81 @@ const { values } = util.parseArgs({
   strict: false,
 });
 
-const userAccount = typeof values.user === 'string' ? values.user : undefined;
-const SESSION_FILE = userAccount ? `session-${userAccount.split('@')[0]}.json` : 'session.json';
+const userAccounts = typeof values.user === 'string' ? values.user.split(',').map(s => s.trim()) : [];
 
 async function setupAuth() {
-  const sessionPath = resolve(process.cwd(), SESSION_FILE);
-
   console.log('--- Manual Authentication Mode ---');
-  console.log('1. A browser window will open.');
-  console.log('2. Log in manually to your ReserveAmerica account.');
-  console.log('3. Once you are logged in and see your dashboard/account, come back here.');
-  console.log('4. Press Enter in this terminal to save the session and exit.\n');
+  console.log('1. A browser window will open for each account.');
+  console.log('2. Log in manually to your ReserveAmerica accounts.');
+  console.log('3. Once you are logged in and see your dashboard/account in all windows, come back here.');
+  console.log('4. Press Enter in this terminal to save all sessions and exit.\\n');
 
-  const browser = await chromium.launch({ headless: false });
-  const context = await browser.newContext({
-    timezoneId: 'America/Denver',
-  });
-  const page = await context.newPage();
+  const usersToAuth = userAccounts.length > 0 ? userAccounts : [undefined];
 
-  await page.goto(LOGIN_URL, { waitUntil: 'domcontentloaded' });
+  const activeSessions: { browser: any, context: any, sessionFile: string, sessionPath: string }[] = [];
 
-  try {
-    const creds = getReserveAmericaCredentials(userAccount);
-    if (creds.username && creds.password) {
-      console.log(`Credentials found in keychain for ${creds.username}. Pre-filling form...`);
-      const emailSelector = 'input[aria-label="Email"], input[placeholder*="user name"], #email';
-      const passwordSelector = 'input[aria-label="Password"], input[type="password"]';
-      await page.waitForSelector(emailSelector, { timeout: 10000 });
-      await page.fill(emailSelector, creds.username);
-      await page.fill(passwordSelector, creds.password);
-      console.log('Form pre-filled. Please manually click Sign In or press Enter in the browser.');
-    } else {
-      console.log('No credentials found in keychain. Please enter them manually.');
+  const promises = usersToAuth.map(async (account) => {
+    const sessionFile = account ? `session-${account.split('@')[0]}.json` : 'session.json';
+    const sessionPath = resolve(process.cwd(), sessionFile);
+
+    const themeArgs = getThemeArgs(account);
+    const browser = await chromium.launch({ headless: false, args: themeArgs });
+
+    const context = await browser.newContext({
+      timezoneId: 'America/Denver',
+    });
+
+    activeSessions.push({ browser, context, sessionFile, sessionPath });
+    const page = await context.newPage();
+
+    await page.goto(LOGIN_URL, { waitUntil: 'domcontentloaded' });
+
+    try {
+      const creds = getReserveAmericaCredentials(account);
+      if (creds.username && creds.password) {
+        console.log(`Credentials found in keychain for ${creds.username}. Pre-filling form...`);
+        const emailSelector = 'input[aria-label="Email"], input[placeholder*="user name"], #email';
+        const passwordSelector = 'input[aria-label="Password"], input[type="password"]';
+        await page.waitForSelector(emailSelector, { timeout: 10000 });
+        await page.fill(emailSelector, creds.username);
+        await page.fill(passwordSelector, creds.password);
+        console.log(`Form pre-filled for ${account || 'default'}. Please manually click Sign In.`);
+      } else {
+        console.log(`No credentials found in keychain for ${account || 'default'}. Please enter them manually.`);
+      }
+    } catch (e) {
+      console.log(`Could not auto-fill credentials for ${account || 'default'}. Please enter them manually.`);
     }
-  } catch (e) {
-    console.log('Could not auto-fill credentials. Please enter them manually.');
-  }
-
-  let isBrowserOpen = true;
-  browser.on('disconnected', () => {
-    isBrowserOpen = false;
   });
+
+  await Promise.all(promises);
+
+  let areBrowsersOpen = true;
+  for (const session of activeSessions) {
+    session.browser.on('disconnected', () => {
+      areBrowsersOpen = false;
+    });
+  }
 
   process.stdin.resume();
   await new Promise<void>((resolvePromise) => {
     process.stdin.once('data', () => resolvePromise());
-    browser.on('disconnected', () => resolvePromise());
+    for (const session of activeSessions) {
+      session.browser.on('disconnected', () => resolvePromise());
+    }
   });
 
-  if (isBrowserOpen) {
-    console.log('Saving session state...');
-    await context.storageState({ path: SESSION_FILE });
-    console.log(`✅ Session saved to ${sessionPath}.`);
+  if (areBrowsersOpen) {
+    console.log('\nSaving session states...');
+    for (const { context, sessionFile, sessionPath } of activeSessions) {
+      await context.storageState({ path: sessionFile });
+      console.log(`✅ Session saved to ${sessionPath}.`);
+    }
   } else {
-    console.log('Browser was closed before session could be saved.');
+    console.log('A browser was closed before sessions could be saved.');
   }
 
-  await browser.close().catch(() => { });
+  await Promise.all(activeSessions.map(s => s.browser.close().catch(() => { })));
   process.exit(0);
 }
 

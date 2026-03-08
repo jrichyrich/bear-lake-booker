@@ -10,6 +10,7 @@ import { searchAvailability, type SiteAvailability } from './reserveamerica';
 import { PARK_URL, SESSION_FILE, USER_AGENTS } from './config';
 import { notifySuccess, type SuccessStage } from './notify';
 import { writeRunSummary } from './reporter';
+import { getThemeArgs } from './theme';
 import {
   sleep,
   ensureLoggedIn,
@@ -389,17 +390,18 @@ async function warmUpAgents(targetSites: string[]): Promise<void> {
     if (!fs.existsSync(PROFILE_DIR)) fs.mkdirSync(PROFILE_DIR, { recursive: true });
   }
 
-  let browser: any = null;
-  if (PROFILE_MODE !== 'persistent') browser = await chromium.launch({ headless: !IS_HEADED });
+  const browsers: any[] = [];
 
   for (let i = 0; i < CONCURRENCY; i++) {
     const agentId = i + 1;
     const label = `[Agent ${agentId}] `;
     let context: BrowserContext;
+    const sessionPathForTheme = getAgentSessionFile(agentId);
+    const themeArgs = getThemeArgs(sessionPathForTheme);
 
     if (PROFILE_MODE === 'persistent') {
       const path = `${PROFILE_DIR}/agent-${agentId}`;
-      const options = { headless: !IS_HEADED, timezoneId: 'America/Denver' };
+      const options = { headless: !IS_HEADED, timezoneId: 'America/Denver', args: themeArgs };
       context = await chromium.launchPersistentContext(path, options);
 
       const sessionPath = getAgentSessionFile(agentId);
@@ -409,10 +411,11 @@ async function warmUpAgents(targetSites: string[]): Promise<void> {
       }
     } else {
       const sessionPath = getAgentSessionFile(agentId);
-      context = await browser!.newContext({
-        storageState: fs.existsSync(sessionPath) ? sessionPath : undefined,
-        timezoneId: 'America/Denver',
-      });
+      const browser = await chromium.launch({ headless: !IS_HEADED, args: themeArgs });
+      browsers.push(browser);
+      const options: any = { timezoneId: 'America/Denver' };
+      if (fs.existsSync(sessionPath)) options.storageState = sessionPath;
+      context = await browser.newContext(options);
     }
 
     activeContexts.set(agentId, context);
@@ -442,7 +445,7 @@ async function warmUpAgents(targetSites: string[]): Promise<void> {
   }
 
   // Store browser reference for cleanup
-  if (browser) (globalThis as any).__sharedBrowser = browser;
+  (globalThis as any).__sharedBrowsers = browsers;
 }
 
 /**
@@ -485,8 +488,10 @@ async function fireAgents(targetSites: string[]): Promise<void> {
   for (const [, context] of activeContexts.entries()) {
     await context.close().catch(() => { });
   }
-  const browser = (globalThis as any).__sharedBrowser;
-  if (browser) await browser.close();
+  const browsers = (globalThis as any).__sharedBrowsers || [];
+  for (const b of browsers) {
+    if (b) await b.close().catch(() => { });
+  }
 
   writeRunSummary({
     timestamp: new Date().toISOString(),
@@ -509,17 +514,17 @@ async function launchCapture(targetSites: string[]) {
     if (!fs.existsSync(PROFILE_DIR)) fs.mkdirSync(PROFILE_DIR, { recursive: true });
   }
 
-  let browser: any = null;
-  if (PROFILE_MODE !== 'persistent') browser = await chromium.launch({ headless: !IS_HEADED });
-
+  const browsers: any[] = [];
   const promises: Promise<void>[] = [];
   for (let i = 0; i < CONCURRENCY; i++) {
     const agentId = i + 1;
     let context: BrowserContext;
+    const sessionPathForTheme = getAgentSessionFile(agentId);
+    const themeArgs = getThemeArgs(sessionPathForTheme);
 
     if (PROFILE_MODE === 'persistent') {
       const path = `${PROFILE_DIR}/agent-${agentId}`;
-      const options = { headless: !IS_HEADED, timezoneId: 'America/Denver' };
+      const options = { headless: !IS_HEADED, timezoneId: 'America/Denver', args: themeArgs };
       context = await chromium.launchPersistentContext(path, options);
       const sessionPath = getAgentSessionFile(agentId);
       if (fs.existsSync(sessionPath)) {
@@ -528,11 +533,13 @@ async function launchCapture(targetSites: string[]) {
       }
     } else {
       const sessionPath = getAgentSessionFile(agentId);
-      context = await browser!.newContext({
-        storageState: fs.existsSync(sessionPath) ? sessionPath : undefined,
-        timezoneId: 'America/Denver',
-      });
+      const browser = await chromium.launch({ headless: !IS_HEADED, args: themeArgs });
+      browsers.push(browser);
+      const options: any = { timezoneId: 'America/Denver' };
+      if (fs.existsSync(sessionPath)) options.storageState = sessionPath;
+      context = await browser.newContext(options);
     }
+
     activeContexts.set(agentId, context);
     const page = await context.newPage();
 
@@ -556,7 +563,9 @@ async function launchCapture(targetSites: string[]) {
   for (const [, context] of activeContexts.entries()) {
     await context.close().catch(() => { });
   }
-  if (browser) await browser.close();
+  for (const b of browsers) {
+    if (b) await b.close().catch(() => { });
+  }
   writeRunSummary({
     timestamp: new Date().toISOString(),
     targetDate: TARGET_DATE,
@@ -576,9 +585,12 @@ async function launchCapture(targetSites: string[]) {
 async function startRace() {
   console.log('--- Bear Lake Sniper Mode ---');
   // --- SAFETY WARNINGS ---
-  if (!AUTO_BOOK || DRY_RUN) {
+  if (!AUTO_BOOK && !DRY_RUN) {
     console.log('\x1b[43m\x1b[30m ⚠️  WARNING: DRY RUN MODE. Sites will NOT be added to your cart. \x1b[0m');
-    console.log('\x1b[33m You forgot the -b (--book) flag. The script will stop at the Site Details page.\x1b[0m\n');
+    console.log(' You forgot the -b (--book) flag. The script will stop at the Site Details page.\n');
+  } else if (DRY_RUN) {
+    console.log('\x1b[43m\x1b[30m ⚠️  WARNING: DRY RUN MODE. Sites will NOT be added to your cart. \x1b[0m');
+    console.log(' --dryRun is enabled. The script will stop at the Site Details page.\n');
   } else {
     console.log('\x1b[42m\x1b[30m 🏁 AUTO-BOOK ACTIVE. Agents will attempt to add sites to your cart. \x1b[0m\n');
   }
