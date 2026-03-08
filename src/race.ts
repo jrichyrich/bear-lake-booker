@@ -31,6 +31,7 @@ import {
   parseTargetTime,
   msUntilTargetTime,
   waitForTargetTime,
+  assertBookingWindow,
 } from './timer-utils';
 
 const { values } = parseArgs({
@@ -282,8 +283,14 @@ async function runAgent(agentId: number, page: Page, preferredSite: string | nul
       await waitForSearchResults(page);
     }
 
-    const candidates = await resolveTargetSites(page, TARGET_DATE, STAY_LENGTH);
-    if (preferredSite) candidates.sort((a) => (a.site === preferredSite ? -1 : 1));
+    let candidates = await resolveTargetSites(page, TARGET_DATE, STAY_LENGTH);
+    if (preferredSite) {
+      candidates.sort((a) => (a.site === preferredSite ? -1 : 1));
+    } else if (candidates.length > 1) {
+      // Offset agents so they don't all collide on the exact same first site
+      const startIndex = (agentId - 1) % candidates.length;
+      candidates = [...candidates.slice(startIndex), ...candidates.slice(0, startIndex)];
+    }
 
     for (const selection of candidates) {
       if (shouldStopAgent(agentId)) break;
@@ -372,10 +379,10 @@ async function warmUpAgents(targetSites: string[]): Promise<void> {
   for (let i = 0; i < CONCURRENCY; i++) {
     const agentId = i + 1;
     const label = `[Agent ${agentId}] `;
-    
+
     const context = await createContextForAgent(agentId, sharedBrowser);
     activeContexts.set(agentId, context);
-    
+
     const page = await context.newPage();
     warmedPages.set(agentId, page);
 
@@ -488,7 +495,7 @@ async function launchCapture(targetSites: string[]) {
 
   await Promise.all(promises);
   await cleanupResources(activeBrowsers);
-  
+
   writeRunSummary({
     timestamp: new Date().toISOString(),
     targetDate: TARGET_DATE,
@@ -507,6 +514,8 @@ async function launchCapture(targetSites: string[]) {
 
 async function startRace() {
   console.log('--- Bear Lake Sniper Mode ---');
+  if (!TARGET_DATE) throw new Error("Target date is required.");
+  assertBookingWindow(TARGET_DATE);
   // --- SAFETY WARNINGS ---
   if (!AUTO_BOOK && !DRY_RUN) {
     console.log('\x1b[43m\x1b[30m ⚠️  WARNING: DRY RUN MODE. Sites will NOT be added to your cart. \x1b[0m');

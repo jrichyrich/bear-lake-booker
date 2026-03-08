@@ -1,6 +1,7 @@
 import { parseArgs } from 'util';
 import { searchAvailability } from './reserveamerica';
 import { notifySuccess } from './notify';
+import { assertBookingWindow } from './timer-utils';
 
 const { values } = parseArgs({
   options: {
@@ -48,6 +49,8 @@ async function main() {
 }
 
 async function checkAvailability() {
+  assertBookingWindow(TARGET_DATE);
+
   const timestamp = new Date().toLocaleTimeString();
   console.log(`[${timestamp}] Checking Bear Lake (${LOOP} loop) for ${TARGET_DATE} (${STAY_LENGTH} nights)...`);
 
