@@ -155,19 +155,31 @@ export async function performAutoLogin(accounts: string[]): Promise<void> {
       const submitSelector = 'button[type="submit"]:has-text("Sign In"), button:has-text("Sign in")';
       await page.waitForSelector(submitSelector, { timeout: 5000 });
 
-      await Promise.all([
-        page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 15000 }),
-        page.click(submitSelector)
-      ]);
+      // Sometimes React leaves the button disabled because it didn't register the programmatic 'fill' as human typing
+      await page.evaluate(() => {
+        const buttons = document.querySelectorAll('button');
+        buttons.forEach(btn => { if (btn) btn.disabled = false });
+      });
+
+      try {
+        await Promise.all([
+          page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 10000 }).catch(() => { }), // Ignore timeouts due to soft navigations
+          page.click(submitSelector)
+        ]);
+      } catch (navigationError: any) {
+        console.warn(`[Auto-Login] Click submission warning: ${navigationError.message}`);
+      }
 
       // Wait a moment for any post-login redirects or CAPTCHAs to settle
-      await page.waitForTimeout(3000);
+      await page.waitForTimeout(4000);
 
       console.log(`[Auto-Login] Verifying session...`);
       const isValid = await validateSessionActive(page);
 
       if (!isValid) {
-        throw new Error(`Auto-login failed for ${account}. ReserveAmerica may have blocked the request or required a CAPTCHA. Please run "npm run auth" manually.`);
+        const errScreenshotPath = `logs/fail-validation-${account}-${Date.now()}.png`;
+        await page.screenshot({ path: errScreenshotPath, fullPage: true });
+        throw new Error(`Auto-login failed for ${account}. ReserveAmerica may have blocked the request or required a CAPTCHA. Saved screenshot to ${errScreenshotPath}. Please run "npm run auth" manually.`);
       }
 
       await context.storageState({ path: sessionPath });
