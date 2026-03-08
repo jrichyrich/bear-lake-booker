@@ -57,9 +57,14 @@ export function sessionExists(account?: string): boolean {
 export async function isSessionValid(page: Page): Promise<boolean> {
   try {
     const bodyText = (await page.textContent('body')) || '';
+    // 'My Account' is in the DOM even when logged out, so we can't use it.
+    // Explicitly check if 'Sign In / Sign Up' is present.
+    if (bodyText.includes('Sign In / Sign Up')) {
+      return false;
+    }
+
     return (
-      bodyText.includes('Sign Out') || 
-      bodyText.includes('My Account') || 
+      bodyText.includes('Sign Out') ||
       bodyText.includes('Member Sign Out')
     );
   } catch {
