@@ -5,9 +5,20 @@ const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 chromium.use(StealthPlugin());
 import { resolve } from 'path';
 import { getReserveAmericaCredentials } from './keychain';
+import * as util from 'util';
 
 const LOGIN_URL = 'https://utahstateparks.reserveamerica.com/memberSignIn.do';
-const SESSION_FILE = 'session.json';
+
+const { values } = util.parseArgs({
+  args: process.argv.slice(2),
+  options: {
+    user: { type: 'string', short: 'u' },
+  },
+  strict: false,
+});
+
+const userAccount = typeof values.user === 'string' ? values.user : undefined;
+const SESSION_FILE = userAccount ? `session-${userAccount.split('@')[0]}.json` : 'session.json';
 
 async function setupAuth() {
   const sessionPath = resolve(process.cwd(), SESSION_FILE);
@@ -27,9 +38,9 @@ async function setupAuth() {
   await page.goto(LOGIN_URL, { waitUntil: 'domcontentloaded' });
 
   try {
-    const creds = getReserveAmericaCredentials();
+    const creds = getReserveAmericaCredentials(userAccount);
     if (creds.username && creds.password) {
-      console.log('Credentials found in keychain. Pre-filling form...');
+      console.log(`Credentials found in keychain for ${creds.username}. Pre-filling form...`);
       const emailSelector = 'input[aria-label="Email"], input[placeholder*="user name"], #email';
       const passwordSelector = 'input[aria-label="Password"], input[type="password"]';
       await page.waitForSelector(emailSelector, { timeout: 10000 });

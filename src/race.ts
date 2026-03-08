@@ -48,6 +48,7 @@ const { values } = parseArgs({
     sites: { type: 'string' },
     snipe: { type: 'boolean', default: false },
     warmup: { type: 'string', default: '5' },
+    accounts: { type: 'string' },
     help: { type: 'boolean', short: 'h' },
   },
 });
@@ -71,6 +72,7 @@ Options:
   --headed                      Run with visible browser
   --bookingMode <single|multi>  Booking coordination mode [default: single]
   --maxHolds <number>           Max concurrent holds in multi mode [default: 1]
+  --accounts <csv>              Comma-separated list of account names for multi-session balancing (e.g., lisa,jason)
   --profileMode <mode>          persistent or ephemeral contexts [default: persistent]
   --profileDir <dir>            Directory for agent persistent profiles [default: profiles]
   --resetProfiles               Delete existing persistent profiles before starting
@@ -102,6 +104,7 @@ const SCREENSHOT_ON_WIN = values.screenshotOnWin!;
 const SITE_ALLOWLIST: string[] = values.sites ? values.sites.split(',').map((s) => s.trim().toUpperCase()) : [];
 const SNIPE_MODE = values.snipe!;
 const WARMUP_MINUTES = parseInt(values.warmup!, 10);
+const ACCOUNTS_LIST: string[] = values.accounts ? values.accounts.split(',').map((s) => s.trim()) : [];
 
 type HoldRecord = {
   agentId: number;
@@ -366,6 +369,15 @@ async function runSnipeAgent(agentId: number, page: Page, siteId: string) {
   }
 }
 
+function getAgentSessionFile(agentId: number): string {
+  if (ACCOUNTS_LIST.length === 0) return SESSION_FILE;
+  // agentId is 1-indexed, so we map agent 1 -> account index 0
+  const index = (agentId - 1) % ACCOUNTS_LIST.length;
+  // Use the username prefix of the email string for the session path
+  const accountPrefix = ACCOUNTS_LIST[index]!.split('@')[0];
+  return `session-${accountPrefix}.json`;
+}
+
 // --- Pre-Warm / Fire Pipeline ---
 
 /**
@@ -373,7 +385,6 @@ async function runSnipeAgent(agentId: number, page: Page, siteId: string) {
  * fill search forms. Returns pre-warmed pages ready to fire.
  */
 async function warmUpAgents(targetSites: string[]): Promise<void> {
-  const hasSession = fs.existsSync(SESSION_FILE);
   if (PROFILE_MODE === 'persistent') {
     if (!fs.existsSync(PROFILE_DIR)) fs.mkdirSync(PROFILE_DIR, { recursive: true });
   }
@@ -390,13 +401,16 @@ async function warmUpAgents(targetSites: string[]): Promise<void> {
       const path = `${PROFILE_DIR}/agent-${agentId}`;
       const options = { headless: !IS_HEADED, timezoneId: 'America/Denver' };
       context = await chromium.launchPersistentContext(path, options);
-      if (hasSession) {
-        console.log(`${label}Refreshing session state...`);
-        await injectSession(context);
+
+      const sessionPath = getAgentSessionFile(agentId);
+      if (fs.existsSync(sessionPath)) {
+        console.log(`${label}Refreshing session state using ${sessionPath}...`);
+        await injectSession(context, sessionPath);
       }
     } else {
+      const sessionPath = getAgentSessionFile(agentId);
       context = await browser!.newContext({
-        storageState: hasSession ? SESSION_FILE : undefined,
+        storageState: fs.existsSync(sessionPath) ? sessionPath : undefined,
         timezoneId: 'America/Denver',
       });
     }
@@ -491,7 +505,6 @@ async function fireAgents(targetSites: string[]): Promise<void> {
 // --- Legacy Launch (non-timed mode) ---
 
 async function launchCapture(targetSites: string[]) {
-  const hasSession = fs.existsSync(SESSION_FILE);
   if (PROFILE_MODE === 'persistent') {
     if (!fs.existsSync(PROFILE_DIR)) fs.mkdirSync(PROFILE_DIR, { recursive: true });
   }
@@ -508,13 +521,15 @@ async function launchCapture(targetSites: string[]) {
       const path = `${PROFILE_DIR}/agent-${agentId}`;
       const options = { headless: !IS_HEADED, timezoneId: 'America/Denver' };
       context = await chromium.launchPersistentContext(path, options);
-      if (hasSession) {
-        console.log(`[Agent ${agentId}] Refreshing session state...`);
-        await injectSession(context);
+      const sessionPath = getAgentSessionFile(agentId);
+      if (fs.existsSync(sessionPath)) {
+        console.log(`[Agent ${agentId}] Refreshing session state using ${sessionPath}...`);
+        await injectSession(context, sessionPath);
       }
     } else {
+      const sessionPath = getAgentSessionFile(agentId);
       context = await browser!.newContext({
-        storageState: hasSession ? SESSION_FILE : undefined,
+        storageState: fs.existsSync(sessionPath) ? sessionPath : undefined,
         timezoneId: 'America/Denver',
       });
     }

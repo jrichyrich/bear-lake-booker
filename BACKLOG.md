@@ -27,7 +27,15 @@
 - [x] Add optional non-macOS notifications.
 - [ ] **Multi-Session Support**: Update `multi-hold` mode to support loading an array of distinct `session.json` profiles (e.g. `session-p1.json`, `session-p2.json`) and assigning them to different agents to bypass the single-account cart limit for concurrent holds.
 
+### Phase 5: Autonomous Pipeline
+- [ ] Implement Date Range Scanning (`--dateRange`)
+- [ ] Push Notifications (Twilio / ntfy.sh)
+- [ ] Watchdog Daemon (24/7 background monitor -> race trigger)
+- [ ] Headless Auto-Session Refresh
+*(See `ARCHITECTURE_ROADMAP.md` for full breakdown and testing plans)*
+
 ## Reference Docs
+- [`ARCHITECTURE_ROADMAP.md`](/Users/lisarichards/Documents/GitHub/bear-lake-booker/ARCHITECTURE_ROADMAP.md)
 - [`MULTI_AGENT_PLAN.md`](/Users/jasricha/Documents/Github_Personal/bear-lake-booker/MULTI_AGENT_PLAN.md)
 - [`MULTI_AGENT_TESTS.md`](/Users/jasricha/Documents/Github_Personal/bear-lake-booker/MULTI_AGENT_TESTS.md)
 - [`MULTI_HOLD_MODE.md`](/Users/jasricha/Documents/Github_Personal/bear-lake-booker/MULTI_HOLD_MODE.md)

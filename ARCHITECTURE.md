@@ -3,27 +3,67 @@
 ## What You Have Today
 
 ```mermaid
-graph TD
-    subgraph "Tier 1: Lightweight Monitor"
-        A["index.ts<br/>(HTTP polling)"] --> B["reserveamerica.ts<br/>(fetch + Cheerio parser)"]
-        B --> C["notify.ts<br/>(iMessage / Desktop)"]
+flowchart TD
+    %% Phase 5
+    subgraph Watchdog [Phase 5: Autonomous Watchdog]
+        WSched["Scheduler"] --> WDate["Date Scanner"]
+        WRef["Headless Auth Refresh"]
+        WNotif["ntfy.sh / SMS"]
     end
 
-    subgraph "Tier 2: Race Mode"
-        D["race.ts<br/>(Orchestrator)"] --> E["automation.ts<br/>(Playwright primitives)"]
-        E --> F["ensureLoggedIn → primeSearchForm<br/>→ resolveTargetSites → openSiteDetails<br/>→ continueToOrderDetails → addToCart"]
+    %% Storage & Credentials
+    subgraph Storage [Storage]
+        K["macOS Keychain"] --> S1["session-lisa.json"]
+        K --> S2["session-jason.json"]
+        Logs["Run Logs"]
     end
 
-    subgraph "Infrastructure"
-        G["config.ts"] --> A
-        G --> D
-        H["keychain.ts"] --> E
-        I["auth.ts"] --> J["session.json"]
-        J --> D
-        K["reporter.ts"] --> D
+    %% Monitoring
+    subgraph Monitor [Tier 1: Polling]
+        I["index.ts (HTTP Polling)"]
+        RAFetch["reserveamerica.ts"]
     end
 
-    A -->|"availability detected"| D
+    %% Execution
+    subgraph Engine [Tier 2: Race Engine]
+        R["race.ts (Orchestrator)"]
+        A1["Agent 1 (Lisa)"]
+        A2["Agent 2 (Jason)"]
+        A3["Agent ..."]
+        Auto["automation.ts (Playwright API)"]
+    end
+
+    %% External
+    subgraph External [External Boundaries]
+        HTTP["ReserveAmerica JSON API"]
+        WAF{"Cloudflare Bot Detection"}
+        Cart["User Shopping Carts"]
+    end
+
+    %% Logical Connections
+    WDate -->|Triggers| I
+    I -->|Fetches| RAFetch
+    RAFetch -->|Requests| HTTP
+    I -->|Opening Detected| R
+    
+    R -.->|Parses| S1
+    R -.->|Parses| S2
+    
+    R -->|Spawns| A1
+    R -->|Spawns| A2
+    R -->|Spawns| A3
+    
+    A1 --> Auto
+    A2 --> Auto
+    A3 --> Auto
+    
+    WRef -.->|Updates| S1
+    
+    Auto -->|Navigates| WAF
+    WAF --> Cart
+    
+    Auto -.->|Success| WNotif
+    Auto -.->|Run State| Logs
 ```
 
 ### Current Capabilities

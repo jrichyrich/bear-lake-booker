@@ -1,4 +1,5 @@
 import { type BrowserContext, type Page } from 'playwright';
+import { resolve } from 'path';
 import { PARK_URL, SESSION_FILE, SITE_DETAILS_URL_BASE } from './config';
 import * as fs from 'fs';
 
@@ -274,10 +275,11 @@ export async function prepareSiteForBooking(
   return page.evaluate(() => (document.querySelector('#dateChosen') as HTMLInputElement)?.value === 'true');
 }
 
-export async function injectSession(context: BrowserContext) {
-  if (!fs.existsSync(SESSION_FILE)) return;
+export async function injectSession(context: BrowserContext, sessionFile: string = SESSION_FILE): Promise<void> {
+  const sessionPath = resolve(process.cwd(), sessionFile);
+  if (!fs.existsSync(sessionPath)) return;
 
-  const state = JSON.parse(fs.readFileSync(SESSION_FILE, 'utf-8'));
+  const state = JSON.parse(fs.readFileSync(sessionPath, 'utf-8'));
 
   if (state.cookies) {
     await context.addCookies(state.cookies);
