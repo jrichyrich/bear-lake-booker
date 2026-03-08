@@ -12,7 +12,7 @@ import { PARK_URL, SESSION_FILE, USER_AGENTS } from './config';
 import { notifySuccess, type SuccessStage } from './notify';
 import { writeRunSummary } from './reporter';
 import { getThemeArgs } from './theme';
-import { getSessionFile, injectSessionState } from './session-utils';
+import { getSessionFile, injectSessionState, getSessionExpiryInfo } from './session-utils';
 import {
   sleep,
   ensureLoggedIn,
@@ -380,7 +380,17 @@ async function warmUpAgents(targetSites: string[]): Promise<void> {
     const agentId = i + 1;
     const label = `[Agent ${agentId}] `;
 
+    const sessionFile = getAgentSessionFile(agentId);
+    const { isExpired, earliestExpiry } = getSessionExpiryInfo(ACCOUNTS_LIST[(agentId - 1) % ACCOUNTS_LIST.length] || undefined);
+
+    if (isExpired) {
+      console.error(`${label}⚠️  WARNING: Local session file is expired or missing. Attempting auto-login...`);
+    } else if (earliestExpiry) {
+      console.log(`${label}Session valid until: ${earliestExpiry.toLocaleString()}`);
+    }
+
     const context = await createContextForAgent(agentId, sharedBrowser);
+
     activeContexts.set(agentId, context);
 
     const page = await context.newPage();

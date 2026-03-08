@@ -6,7 +6,7 @@ chromium.use(StealthPlugin());
 import { getReserveAmericaCredentials } from './keychain';
 import * as util from 'util';
 import { getThemeArgs } from './theme';
-import { getSessionFile, getSessionPath } from './session-utils';
+import { getSessionFile, getSessionPath, validateSessionActive } from './session-utils';
 
 const LOGIN_URL = 'https://utahstateparks.reserveamerica.com/memberSignIn.do';
 
@@ -98,10 +98,18 @@ async function waitForUserCompletion(activeSessions: ActiveSession[]): Promise<b
 }
 
 async function saveSessions(activeSessions: ActiveSession[]) {
-  console.log('\nSaving session states...');
+  console.log('\nValidating and saving session states...');
   for (const { context, sessionPath } of activeSessions) {
-    await context.storageState({ path: sessionPath });
-    console.log(`✅ Session saved to ${sessionPath}.`);
+    const page = await context.newPage();
+    const isValid = await validateSessionActive(page);
+    await page.close();
+
+    if (isValid) {
+      await context.storageState({ path: sessionPath });
+      console.log(`✅ Session verified and saved to ${sessionPath}.`);
+    } else {
+      console.error(`❌ Session at ${sessionPath} is INVALID. Skipping save. Did you log in successfully?`);
+    }
   }
 }
 

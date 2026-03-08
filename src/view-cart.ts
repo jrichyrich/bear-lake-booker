@@ -5,7 +5,7 @@ chromium.use(StealthPlugin());
 
 import { parseArgs } from 'util';
 import { getThemeArgs } from './theme';
-import { getSessionPath, isSessionValid, sessionExists } from './session-utils';
+import { getSessionPath, validateSessionActive, sessionExists } from './session-utils';
 import { PARK_URL } from './config';
 
 const CART_URL = 'https://utahstateparks.reserveamerica.com/viewShoppingCart.do';
@@ -52,10 +52,8 @@ async function openAccountCart(accountName: string) {
   const page = await context.newPage();
   console.log(`[${accountName}] Verifying session...`);
   
-  await page.goto(PARK_URL, { waitUntil: 'domcontentloaded' });
-
-  if (await isSessionValid(page)) {
-    console.log(`[${accountName}] ✅ Session active. Loading Shopping Cart...`);
+  if (await validateSessionActive(page)) {
+    console.log(`[${accountName}] ✅ Session verified as ACTIVE. Loading Shopping Cart...`);
     await page.goto(CART_URL);
   } else {
     console.error(`[${accountName}] ❌ Session expired! Run "npm run auth -u ${accountName}" to refresh.`);

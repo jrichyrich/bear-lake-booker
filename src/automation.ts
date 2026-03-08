@@ -1,6 +1,6 @@
 import { type Page } from 'playwright';
 import { PARK_URL, SITE_DETAILS_URL_BASE } from './config';
-import { isSessionValid } from './session-utils';
+import { validateSessionActive } from './session-utils';
 
 export type SiteSelection = {
   site: string;
@@ -24,8 +24,8 @@ export async function isErrorPage(page: Page): Promise<boolean> {
 }
 
 export async function ensureLoggedIn(page: Page, agentLabel = ''): Promise<boolean> {
-  if (await isSessionValid(page)) {
-    console.log(`${agentLabel}✅ Session is valid and logged in.`);
+  if (await validateSessionActive(page)) {
+    console.log(`${agentLabel}✅ Session verified as ACTIVE.`);
     return true;
   }
 

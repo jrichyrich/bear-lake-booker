@@ -44,29 +44,69 @@ export function sessionExists(account?: string): boolean {
   if (exists) {
     try {
       fs.chmodSync(path, 0o600);
-    } catch {
-      // Ignore errors if permissions can't be set
-    }
+    } catch { /* ignore */ }
   }
   return exists;
 }
 
 /**
- * Validates if a page is currently logged in by checking for "Sign Out" or "My Account" indicators.
+ * Returns summary info about the session's cookie lifecycle.
+ */
+export function getSessionExpiryInfo(account?: string): { isExpired: boolean; earliestExpiry: Date | null } {
+  const path = getSessionPath(account);
+  if (!fs.existsSync(path)) return { isExpired: true, earliestExpiry: null };
+
+  try {
+    const state = JSON.parse(fs.readFileSync(path, 'utf-8'));
+    const now = Date.now() / 1000;
+    
+    // JSESSIONID is a session cookie (expires: -1), so we look at AWSALB and others
+    const expiringCookies = state.cookies.filter((c: any) => c.expires !== -1);
+    
+    if (expiringCookies.length === 0) return { isExpired: false, earliestExpiry: null };
+
+    const minExpiry = Math.min(...expiringCookies.map((c: any) => c.expires));
+    return {
+      isExpired: now >= minExpiry,
+      earliestExpiry: new Date(minExpiry * 1000),
+    };
+  } catch {
+    return { isExpired: true, earliestExpiry: null };
+  }
+}
+
+/**
+ * Robustly validates if a session is ACTIVE by attempting to navigate to a protected page.
+ * If the server redirects us to the login page, the session is invalid.
+ */
+export async function validateSessionActive(page: Page): Promise<boolean> {
+  const MY_ACCOUNT_URL = 'https://utahstateparks.reserveamerica.com/memberAccountHome.do';
+  const LOGIN_URL_PART = 'memberSignIn.do';
+
+  try {
+    // 1. Navigate to a protected URL
+    await page.goto(MY_ACCOUNT_URL, { waitUntil: 'domcontentloaded', timeout: 15000 });
+    
+    // 2. Check the final URL. If it contains memberSignIn.do, we were redirected (Session Expired).
+    const finalUrl = page.url();
+    if (finalUrl.includes(LOGIN_URL_PART)) return false;
+
+    // 3. Double-check for login indicators in HTML
+    const bodyText = (await page.textContent('body')) || '';
+    return bodyText.includes('Sign Out') || bodyText.includes('Member Sign Out');
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Passive check: Scans the current page for login indicators without navigating.
  */
 export async function isSessionValid(page: Page): Promise<boolean> {
   try {
     const bodyText = (await page.textContent('body')) || '';
-    // 'My Account' is in the DOM even when logged out, so we can't use it.
-    // Explicitly check if 'Sign In / Sign Up' is present.
-    if (bodyText.includes('Sign In / Sign Up')) {
-      return false;
-    }
-
-    return (
-      bodyText.includes('Sign Out') ||
-      bodyText.includes('Member Sign Out')
-    );
+    if (bodyText.includes('Sign In / Sign Up')) return false;
+    return bodyText.includes('Sign Out') || bodyText.includes('Member Sign Out');
   } catch {
     return false;
   }
