@@ -27,6 +27,11 @@ import {
   snipeDirectUrl,
   preWarmConnections,
 } from './automation';
+import {
+  parseTargetTime,
+  msUntilTargetTime,
+  waitForTargetTime,
+} from './timer-utils';
 
 const { values } = parseArgs({
   options: {
@@ -133,6 +138,7 @@ const runState: RunState = {
 };
 
 const activeContexts = new Map<number, BrowserContext>();
+const activeBrowsers: any[] = [];
 
 // Pre-warmed pages — created during warm-up, reused at fire time
 const warmedPages = new Map<number, Page>();
@@ -190,47 +196,14 @@ async function cancelRemainingAgents(excludeAgentId: number) {
   }
 }
 
-// --- High-Resolution Timer ---
-
-/**
- * Parses a HH:MM:SS string into a Date object for today.
- */
-function parseTargetTime(targetTimeStr: string): Date {
-  const [hours = 0, minutes = 0, seconds = 0] = targetTimeStr.split(':').map(Number);
-  const target = new Date();
-  target.setHours(hours, minutes, seconds, 0);
-  return target;
-}
-
-/**
- * High-resolution wait using performance.now() for sub-ms precision.
- * Switches from sleep-based polling to busy-wait in the final 100ms.
- */
-async function waitForTargetTime(targetTimeStr: string) {
-  const target = parseTargetTime(targetTimeStr);
-  console.log(`Waiting for ${targetTimeStr} (${target.toLocaleTimeString()})...`);
-
-  // Coarse wait: sleep in 500ms intervals until 200ms before target
-  while (true) {
-    const remaining = target.getTime() - Date.now();
-    if (remaining <= 200) break;
-    await sleep(Math.min(remaining - 200, 500));
+async function cleanupResources(browsers: any[]) {
+  console.log('\nCleaning up resources...');
+  for (const [, context] of activeContexts.entries()) {
+    await context.close().catch(() => { });
   }
-
-  // Fine wait: busy-wait for the final 200ms
-  while (Date.now() < target.getTime()) {
-    // spin
+  for (const b of browsers) {
+    if (b) await b.close().catch(() => { });
   }
-
-  console.log(`🔥 Firing now! (${new Date().toISOString()})`);
-}
-
-/**
- * Returns milliseconds until the target time.
- */
-function msUntilTargetTime(targetTimeStr: string): number {
-  const target = parseTargetTime(targetTimeStr);
-  return target.getTime() - Date.now();
 }
 
 // --- HTTP Availability Polling ---
@@ -390,11 +363,10 @@ async function warmUpAgents(targetSites: string[]): Promise<void> {
     fs.mkdirSync(PROFILE_DIR, { recursive: true });
   }
 
-  const browsers: any[] = [];
   let sharedBrowser: any = null;
   if (PROFILE_MODE !== 'persistent') {
     sharedBrowser = await chromium.launch({ headless: !IS_HEADED });
-    browsers.push(sharedBrowser);
+    activeBrowsers.push(sharedBrowser);
   }
 
   for (let i = 0; i < CONCURRENCY; i++) {
@@ -421,8 +393,6 @@ async function warmUpAgents(targetSites: string[]): Promise<void> {
       console.log(`${label}✅ Pre-warmed. Will snipe ${targetSites[i] ?? 'first available'} at fire time.`);
     }
   }
-
-  (globalThis as any).__sharedBrowsers = browsers;
 }
 
 /**
@@ -461,14 +431,7 @@ async function fireAgents(targetSites: string[]): Promise<void> {
 
   await Promise.all(promises);
 
-  // Cleanup
-  for (const [, context] of activeContexts.entries()) {
-    await context.close().catch(() => { });
-  }
-  const browsers = (globalThis as any).__sharedBrowsers || [];
-  for (const b of browsers) {
-    if (b) await b.close().catch(() => { });
-  }
+  await cleanupResources(activeBrowsers);
 
   writeRunSummary({
     timestamp: new Date().toISOString(),
@@ -491,11 +454,10 @@ async function launchCapture(targetSites: string[]) {
     fs.mkdirSync(PROFILE_DIR, { recursive: true });
   }
 
-  const browsers: any[] = [];
   let sharedBrowser: any = null;
   if (PROFILE_MODE !== 'persistent') {
     sharedBrowser = await chromium.launch({ headless: !IS_HEADED });
-    browsers.push(sharedBrowser);
+    activeBrowsers.push(sharedBrowser);
   }
 
   const promises: Promise<void>[] = [];
@@ -525,9 +487,8 @@ async function launchCapture(targetSites: string[]) {
   }
 
   await Promise.all(promises);
-  for (const b of browsers) {
-    if (b) await b.close().catch(() => { });
-  }
+  await cleanupResources(activeBrowsers);
+  
   writeRunSummary({
     timestamp: new Date().toISOString(),
     targetDate: TARGET_DATE,

@@ -179,14 +179,23 @@ async function confirmAddToCart(page: Page, agentLabel = ''): Promise<boolean> {
     '.btn[name="submitSiteForm"]', 'input[type="submit"][value="Proceed to Cart"]'
   ];
 
-  for (const selector of selectors) {
-    const btn = page.locator(selector).first();
-    if (await btn.count() > 0 && await btn.isVisible()) {
-      const nav = page.waitForNavigation({ waitUntil: 'networkidle', timeout: 15000 }).catch(() => null);
-      await btn.click({ force: true });
-      await nav;
+  // Combine into a single robust locator
+  const cartButton = page.locator(selectors.join(', ')).first();
 
-      if (page.url().includes('ShoppingCart.do') || page.url().includes('viewShoppingCart.do')) return true;
+  if (await cartButton.isVisible({ timeout: 5000 }).catch(() => false)) {
+    console.log(`${agentLabel}Cart confirmation button found. Clicking...`);
+    await cartButton.click({ force: true });
+    
+    // Wait for URL change to shopping cart
+    try {
+      await page.waitForURL((url) => 
+        url.toString().includes('ShoppingCart.do') || 
+        url.toString().includes('viewShoppingCart.do'), 
+        { timeout: 15000, waitUntil: 'domcontentloaded' }
+      );
+      return true;
+    } catch {
+      console.log(`${agentLabel}Timed out waiting for Shopping Cart URL.`);
     }
   }
 
@@ -205,24 +214,38 @@ export async function executeBookingFlow(
   stayLength: string,
   agentLabel = ''
 ): Promise<boolean> {
-  if (!(await prepareSiteForBooking(page, targetDate, stayLength))) return false;
+  const prepared = await prepareSiteForBooking(page, targetDate, stayLength);
+  if (!prepared) {
+    console.error(`${agentLabel}Failed to prepare site for booking (dates/form missing).`);
+    return false;
+  }
 
   const bookBtn = page.locator('#btnbookdates, #btnbooknow, button:has-text("Book Now")').first();
-  const nav = page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => null);
   await bookBtn.click();
-  await nav;
 
-  const isOrderDetails = await page.evaluate(() => 
-    window.location.pathname.includes('/switchBookingAction.do') || 
-    (document.body.textContent ?? '').includes('Order Details')
-  );
+  // Wait for state transition (either Order Details or Shopping Cart)
+  try {
+    await page.waitForURL((url) => 
+      url.toString().includes('switchBookingAction.do') || 
+      url.toString().includes('ShoppingCart.do') || 
+      url.toString().includes('viewShoppingCart.do'), 
+      { timeout: 15000, waitUntil: 'domcontentloaded' }
+    );
+  } catch (e) {
+    console.error(`${agentLabel}Navigation timeout after clicking initial Book button.`);
+    return false;
+  }
+
+  const currentUrl = page.url();
+  const isOrderDetails = currentUrl.includes('switchBookingAction.do') || 
+                         await page.evaluate(() => (document.body.textContent ?? '').includes('Order Details'));
 
   if (isOrderDetails) {
     await prepareOrderDetails(page, agentLabel);
     return await confirmAddToCart(page, agentLabel);
   }
 
-  return page.url().includes('ShoppingCart.do') || page.url().includes('viewShoppingCart.do');
+  return currentUrl.includes('ShoppingCart.do') || currentUrl.includes('viewShoppingCart.do');
 }
 
 export async function addToCart(page: Page, agentLabel = ''): Promise<boolean> {
