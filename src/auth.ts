@@ -99,8 +99,8 @@ async function waitForUserCompletion(activeSessions: ActiveSession[]): Promise<b
 
 async function saveSessions(activeSessions: ActiveSession[]) {
   console.log('\nSaving session states...');
-  for (const { context, sessionFile, sessionPath } of activeSessions) {
-    await context.storageState({ path: sessionFile });
+  for (const { context, sessionPath } of activeSessions) {
+    await context.storageState({ path: sessionPath });
     console.log(`✅ Session saved to ${sessionPath}.`);
   }
 }

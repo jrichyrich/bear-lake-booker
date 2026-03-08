@@ -1,15 +1,24 @@
 import { type BrowserContext, type Page } from 'playwright';
-import { resolve } from 'path';
+import { resolve, join } from 'path';
 import * as fs from 'fs';
-import { SESSION_FILE } from './config';
+import { SESSION_FILE, SESSION_DIR } from './config';
+
+/**
+ * Returns the absolute path to the sessions directory.
+ */
+export function getSessionDir(): string {
+  const dir = resolve(process.cwd(), SESSION_DIR);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  return dir;
+}
 
 /**
  * Resolves the session filename for a given account.
- * If no account is provided, defaults to the standard session file.
  */
 export function getSessionFile(account?: string): string {
   if (!account) return SESSION_FILE;
-  // Use the username prefix of the email string for the session path
   const accountPrefix = account.split('@')[0];
   return `session-${accountPrefix}.json`;
 }
@@ -18,7 +27,7 @@ export function getSessionFile(account?: string): string {
  * Returns the absolute path to a session file.
  */
 export function getSessionPath(account?: string): string {
-  return resolve(process.cwd(), getSessionFile(account));
+  return join(getSessionDir(), getSessionFile(account));
 }
 
 /**
