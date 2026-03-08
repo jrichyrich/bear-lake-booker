@@ -22,15 +22,17 @@ const userAccounts = typeof values.user === 'string' ? values.user.split(',').ma
 
 type ActiveSession = { browser: any, context: any, sessionFile: string, sessionPath: string };
 
-async function setupAuth() {
-  console.log('--- Manual Authentication Mode ---');
+export async function setupAuthForAccounts(accounts: string[]) {
+  console.log('\n--- Manual Authentication Mode Required ---');
   console.log('1. A browser window will open for each account.');
-  console.log('2. Log in manually to your ReserveAmerica accounts.');
+  console.log('2. Log in manually to your ReserveAmerica accounts. (Solve any CAPTCHAs)');
   console.log('3. Once you are logged in and see your dashboard/account in all windows, come back here.');
-  console.log('4. Press Enter in this terminal to save all sessions and exit.\\n');
+  console.log('4. Press Enter in this terminal to save all sessions and continue.\\n');
 
-  const usersToAuth = userAccounts.length > 0 ? userAccounts : [undefined];
-  const activeSessions: ActiveSession[] = await Promise.all(usersToAuth.map(launchBrowserForAccount));
+  const usersToAuth = accounts.length > 0 ? accounts : [undefined];
+  const activeSessions: ActiveSession[] = await Promise.all(
+    usersToAuth.map(account => launchBrowserForAccount(account))
+  );
 
   const areBrowsersOpen = await waitForUserCompletion(activeSessions);
 
@@ -38,10 +40,20 @@ async function setupAuth() {
     await saveSessions(activeSessions);
   } else {
     console.log('A browser was closed before sessions could be saved.');
+    throw new Error('Manual authentication aborted by user (browser closed).');
   }
 
   await Promise.all(activeSessions.map(s => s.browser.close().catch(() => { })));
-  process.exit(0);
+}
+
+async function setupAuth() {
+  try {
+    await setupAuthForAccounts(userAccounts);
+    process.exit(0);
+  } catch (error: any) {
+    console.error(error.message);
+    process.exit(1);
+  }
 }
 
 async function launchBrowserForAccount(account?: string): Promise<ActiveSession> {
@@ -73,8 +85,9 @@ async function preFillCredentials(page: any, account?: string) {
     } else {
       console.log(`No credentials found in keychain for ${account || 'default'}. Please enter them manually.`);
     }
-  } catch (e) {
-    console.log(`Could not auto-fill credentials for ${account || 'default'}. Please enter them manually.`);
+  } catch (e: any) {
+    console.log(`⚠️ Could not auto-fill credentials for ${account || 'default'}: ${e.message}`);
+    console.log(`Please enter them manually.`);
   }
 }
 
@@ -179,12 +192,17 @@ export async function performAutoLogin(accounts: string[]): Promise<void> {
       if (!isValid) {
         const errScreenshotPath = `logs/fail-validation-${account}-${Date.now()}.png`;
         await page.screenshot({ path: errScreenshotPath, fullPage: true });
-        throw new Error(`Auto-login failed for ${account}. ReserveAmerica may have blocked the request or required a CAPTCHA. Saved screenshot to ${errScreenshotPath}. Please run "npm run auth" manually.`);
+        console.error(`❌ Auto-login failed for ${account}. ReserveAmerica may have blocked the request or required a CAPTCHA. Saved screenshot to ${errScreenshotPath}.`);
+        throw new Error('Auto-login failed. Fallback required.');
       }
 
       await context.storageState({ path: sessionPath });
       console.log(`✅ [Auto-Login] Successfully renewed session for ${account} and saved to ${sessionPath}.`);
     }
+  } catch (error: any) {
+    console.log(`\n⚠️ Headless auto-login was unable to complete: ${error.message}`);
+    console.log(`Falling back to manual authentication window...\n`);
+    await setupAuthForAccounts(accounts);
   } finally {
     for (const browser of browsersToClose) {
       await browser.close().catch(() => { });

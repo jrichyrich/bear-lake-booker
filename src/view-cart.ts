@@ -51,26 +51,51 @@ async function openAccountCart(accountName: string) {
 
   const page = await context.newPage();
   console.log(`[${accountName}] Verifying session...`);
-  
+
   if (await validateSessionActive(page)) {
     console.log(`[${accountName}] ✅ Session verified as ACTIVE. Loading Shopping Cart...`);
     await page.goto(CART_URL);
   } else {
-    console.error(`[${accountName}] ❌ Session expired! Run "npm run auth -u ${accountName}" to refresh.`);
+    console.error(`[${accountName}] ⚠️ Session expired! Attempting auto-login...`);
+    await browser.close().catch(() => { });
+
+    try {
+      // Import dynamically to avoid circular dependencies if any
+      const { performAutoLogin } = require('./auth');
+      await performAutoLogin([accountName]);
+
+      console.log(`[${accountName}] ✅ Auto-login successful. Reopening Shopping Cart...`);
+      // Re-launch with the fresh session
+      const newBrowser = await chromium.launch({ headless: false, args: themeArgs });
+      const newContext = await newBrowser.newContext({
+        storageState: sessionPath,
+        timezoneId: 'America/Denver',
+      });
+      const newPage = await newContext.newPage();
+      await newPage.goto(CART_URL);
+
+      // Keep this specific browser open until closed by user
+      await newPage.waitForEvent('close', { timeout: 0 }).catch(() => { });
+      await newBrowser.close().catch(() => { });
+      return; // Exit here since we launched a new browser life-cycle
+    } catch (e: any) {
+      console.error(`[${accountName}] ❌ Auto-login failed: ${e.message}\nPlease run "npm run auth -u ${accountName}" manually.`);
+      return;
+    }
   }
 
-  // Keep this specific browser open until closed by user
-  await page.waitForEvent('close', { timeout: 0 }).catch(() => {});
-  await browser.close().catch(() => {});
+  // Keep this specific browser open until closed by user (for the valid session path)
+  await page.waitForEvent('close', { timeout: 0 }).catch(() => { });
+  await browser.close().catch(() => { });
 }
 
 async function main() {
-  const accountList = values.accounts 
-    ? values.accounts.split(',').map(s => s.trim()) 
+  const accountList = values.accounts
+    ? values.accounts.split(',').map(s => s.trim())
     : [undefined]; // Use default session if no accounts provided
 
   console.log('--- Bear Lake Booker: Shopping Cart Viewer ---');
-  
+
   if (accountList[0] === undefined) {
     console.log('Opening default shopping cart...');
     await openAccountCart('default');

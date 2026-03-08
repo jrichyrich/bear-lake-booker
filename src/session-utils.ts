@@ -59,10 +59,10 @@ export function getSessionExpiryInfo(account?: string): { isExpired: boolean; ea
   try {
     const state = JSON.parse(fs.readFileSync(path, 'utf-8'));
     const now = Date.now() / 1000;
-    
+
     // JSESSIONID is a session cookie (expires: -1), so we look at AWSALB and others
     const expiringCookies = state.cookies.filter((c: any) => c.expires !== -1);
-    
+
     if (expiringCookies.length === 0) return { isExpired: false, earliestExpiry: null };
 
     const minExpiry = Math.min(...expiringCookies.map((c: any) => c.expires));
@@ -86,7 +86,7 @@ export async function validateSessionActive(page: Page): Promise<boolean> {
   try {
     // 1. Navigate to a protected URL
     await page.goto(MY_ACCOUNT_URL, { waitUntil: 'domcontentloaded', timeout: 15000 });
-    
+
     // 2. Check the final URL. If it contains memberSignIn.do, we were redirected (Session Expired).
     const finalUrl = page.url();
     if (finalUrl.includes(LOGIN_URL_PART)) return false;
@@ -118,13 +118,13 @@ export async function isSessionValid(page: Page): Promise<boolean> {
  */
 export async function startHeartbeat(page: Page, agentLabel = ''): Promise<NodeJS.Timeout> {
   const MY_ACCOUNT_URL = 'https://utahstateparks.reserveamerica.com/memberAccountHome.do';
-  
+
   const beat = async () => {
     try {
       const timestamp = new Date().toLocaleTimeString();
       // Navigate to a low-overhead protected page
       await page.goto(MY_ACCOUNT_URL, { waitUntil: 'domcontentloaded', timeout: 15000 });
-      
+
       const isValid = await isSessionValid(page);
       if (isValid) {
         console.log(`${agentLabel}[${timestamp}] Heartbeat: Session is alive.`);
@@ -143,7 +143,7 @@ export async function startHeartbeat(page: Page, agentLabel = ''): Promise<NodeJ
   let timeoutId: NodeJS.Timeout;
   // Initial beat
   await beat();
-  
+
   return {
     // Return a dummy object that can be "cleared" to stop the heartbeat
     unref() { clearTimeout(timeoutId); },
@@ -155,8 +155,7 @@ export async function startHeartbeat(page: Page, agentLabel = ''): Promise<NodeJ
  * Injects session state into a browser context.
  * Prefers Playwright's native storageState but supports manual injection if needed.
  */
-export async function injectSessionState(context: BrowserContext, sessionFile: string): Promise<void> {
-  const sessionPath = resolve(process.cwd(), sessionFile);
+export async function injectSessionState(context: BrowserContext, sessionPath: string): Promise<void> {
   if (!fs.existsSync(sessionPath)) return;
 
   const state = JSON.parse(fs.readFileSync(sessionPath, 'utf-8'));

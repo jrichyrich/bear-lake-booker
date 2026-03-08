@@ -56,12 +56,15 @@ export function assertBookingWindow(targetDateStr: string) {
   const day = parseInt(dayStr, 10);
   const year = parseInt(yearStr, 10);
 
-  // Calculate 4 months prior, at 8:00 AM local time (Mountain Time)
-  const windowOpenDate = new Date(year, month - 1 - 4, day, 8, 0, 0);
-  const now = new Date();
+  // The target date
+  const targetDate = new Date(year, month - 1, day);
 
-  if (now < windowOpenDate) {
-    throw new Error(`The booking window for ${targetDateStr} has not opened yet. It opens on ${windowOpenDate.toLocaleString()} (4 months prior at 8:00 AM).`);
+  // The max allowed date (4 months from today)
+  const now = new Date();
+  const maxDate = new Date(now.getFullYear(), now.getMonth() + 4, now.getDate());
+
+  if (targetDate > maxDate) {
+    throw new Error(`The booking date ${targetDateStr} is out of bounds. The maximum allowed booking date is 4 months from today: ${maxDate.toLocaleDateString()}`);
   }
 }
 

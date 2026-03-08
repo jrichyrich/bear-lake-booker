@@ -13,7 +13,7 @@ import { assertBookingWindow, getDynamicMaxDate, getDynamicRandomDate } from './
 
 const { values } = parseArgs({
   options: {
-    date: { type: 'string', short: 'd', default: '07/22/2026' },
+    date: { type: 'string', short: 'd', default: '07/08/2026' },
     length: { type: 'string', short: 'l', default: '6' },
     loop: { type: 'string', short: 'o', default: 'BIRCH' },
     monitorInterval: { type: 'string', short: 'i' },

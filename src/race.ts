@@ -12,7 +12,7 @@ import { PARK_URL, SESSION_FILE, USER_AGENTS } from './config';
 import { notifySuccess, type SuccessStage } from './notify';
 import { writeRunSummary } from './reporter';
 import { getThemeArgs } from './theme';
-import { getSessionFile, injectSessionState, getSessionExpiryInfo, startHeartbeat } from './session-utils';
+import { getSessionFile, getSessionPath, injectSessionState, getSessionExpiryInfo, startHeartbeat } from './session-utils';
 import { performAutoLogin } from './auth';
 import {
   sleep,
@@ -39,7 +39,7 @@ import {
 
 const { values } = parseArgs({
   options: {
-    date: { type: 'string', short: 'd', default: '07/22/2026' },
+    date: { type: 'string', short: 'd', default: '07/08/2026' },
     length: { type: 'string', short: 'l', default: '6' },
     loop: { type: 'string', short: 'o', default: 'BIRCH' },
     concurrency: { type: 'string', short: 'c', default: '10' },
@@ -71,7 +71,7 @@ Usage:
   npm run race -- [options]
 
 Options:
-  -d, --date <string>           Target arrival date (MM/DD/YYYY) [default: 07/22/2026]
+  -d, --date <string>           Target arrival date (MM/DD/YYYY) [default: 07/08/2026]
   -l, --length <string>         Length of stay in nights [default: 6]
   -o, --loop <string>           Campground loop name [default: BIRCH]
   -c, --concurrency <number>    Number of parallel agents [default: 10]
@@ -344,15 +344,21 @@ async function runSnipeAgent(agentId: number, page: Page, siteId: string) {
 }
 
 function getAgentSessionFile(agentId: number): string {
-  if (ACCOUNTS_LIST.length === 0) return SESSION_FILE;
+  if (ACCOUNTS_LIST.length === 0) return getSessionFile(undefined);
   const index = (agentId - 1) % ACCOUNTS_LIST.length;
   return getSessionFile(ACCOUNTS_LIST[index]);
+}
+
+function getAgentSessionPath(agentId: number): string {
+  if (ACCOUNTS_LIST.length === 0) return getSessionPath(undefined);
+  const index = (agentId - 1) % ACCOUNTS_LIST.length;
+  return getSessionPath(ACCOUNTS_LIST[index]);
 }
 
 async function createContextForAgent(agentId: number, browser: any | null): Promise<BrowserContext> {
   const label = `[Agent ${agentId}] `;
   const sessionFile = getAgentSessionFile(agentId);
-  const sessionPath = resolve(process.cwd(), sessionFile);
+  const sessionPath = getAgentSessionPath(agentId);
   const themeArgs = getThemeArgs(sessionFile);
   const options: any = { headless: !IS_HEADED, timezoneId: 'America/Denver', args: themeArgs };
 
@@ -362,10 +368,15 @@ async function createContextForAgent(agentId: number, browser: any | null): Prom
     context = await chromium.launchPersistentContext(path, options);
     if (fs.existsSync(sessionPath)) {
       console.log(`${label}Refreshing session state using ${sessionFile}...`);
-      await injectSessionState(context, sessionFile);
+      await injectSessionState(context, sessionPath);
     }
   } else {
-    if (fs.existsSync(sessionPath)) options.storageState = sessionPath;
+    if (fs.existsSync(sessionPath)) {
+      options.storageState = sessionPath;
+      console.log(`${label}Loaded session from ${sessionFile}`);
+    } else {
+      console.log(`${label}No existing session file found at ${sessionFile}`);
+    }
     context = await browser.newContext(options);
   }
   return context;
@@ -422,7 +433,7 @@ async function warmUpAgents(targetSites: string[]): Promise<void> {
       try {
         await performAutoLogin(accountName ? [accountName] : []);
         // Re-inject the fresh session into the existing context
-        await injectSessionState(context, sessionFile);
+        await injectSessionState(context, getAgentSessionPath(agentId));
         await page.goto(PARK_URL, { waitUntil: 'domcontentloaded' });
         loggedIn = await ensureLoggedIn(page, label);
         if (!loggedIn) throw new Error('Auto-login succeeded but session still invalid.');
@@ -518,12 +529,25 @@ async function launchCapture(targetSites: string[]) {
       activeContexts.set(agentId, context);
       const page = await context.newPage();
 
+      const sessionFile = getAgentSessionFile(agentId);
+      const accountName = ACCOUNTS_LIST[(agentId - 1) % ACCOUNTS_LIST.length];
+
       try {
         await page.goto(PARK_URL, { waitUntil: 'domcontentloaded' });
-        const loggedIn = await ensureLoggedIn(page, label);
+        let loggedIn = await ensureLoggedIn(page, label);
         if (!loggedIn) {
-          console.error(`\n❌ CRITICAL ERROR: Session expired for Agent ${agentId}. Run "npm run auth" manually.\n`);
-          process.exit(1);
+          console.error(`\n⚠️  WARNING: Server rejected session for Agent ${agentId}. Attempting auto-login...\n`);
+          try {
+            await performAutoLogin(accountName ? [accountName] : []);
+            // Re-inject the fresh session into the existing context
+            await injectSessionState(context, getAgentSessionPath(agentId));
+            await page.goto(PARK_URL, { waitUntil: 'domcontentloaded' });
+            loggedIn = await ensureLoggedIn(page, label);
+            if (!loggedIn) throw new Error('Auto-login succeeded but session still invalid.');
+          } catch (e: any) {
+            console.error(`\n❌ CRITICAL ERROR: Auto-login failed for Agent ${agentId}: ${e.message}\n`);
+            process.exit(1);
+          }
         }
         await primeSearchForm(page, LOOP, TARGET_DATE, STAY_LENGTH, label);
         await runAgent(agentId, page, targetSites[i] ?? null);
@@ -554,10 +578,38 @@ async function launchCapture(targetSites: string[]) {
 
 // --- Entry Point ---
 
+async function validateAllSessionsUpfront() {
+  console.log('\n[Init] Validating session state for all accounts before starting...');
+  const accountsToCheck = ACCOUNTS_LIST.length > 0 ? ACCOUNTS_LIST : [undefined];
+  const accountsToLogin: string[] = [];
+
+  for (const account of accountsToCheck) {
+    const { isExpired } = getSessionExpiryInfo(account);
+    if (isExpired) {
+      accountsToLogin.push(account || 'default');
+    }
+  }
+
+  if (accountsToLogin.length > 0) {
+    console.log(`[Init] Sessions expired or missing for: ${accountsToLogin.join(', ')}. Launching Auth fallback...`);
+    try {
+      await performAutoLogin(accountsToLogin);
+    } catch (e: any) {
+      console.error(`\n❌ CRITICAL ERROR: Initial authentication failed: ${e.message}\n`);
+      process.exit(1);
+    }
+  } else {
+    console.log('[Init] ✅ All required sessions are currently valid.');
+  }
+}
+
 async function startRace() {
   console.log('--- Bear Lake Sniper Mode ---');
   if (!TARGET_DATE) throw new Error("Target date is required.");
   assertBookingWindow(TARGET_DATE);
+  // --- FLOWCHART: Ensure Valid Session ---
+  await validateAllSessionsUpfront();
+
   // --- SAFETY WARNINGS ---
   if (!AUTO_BOOK && !DRY_RUN) {
     console.log('\x1b[43m\x1b[30m ⚠️  WARNING: DRY RUN MODE. Sites will NOT be added to your cart. \x1b[0m');
@@ -627,10 +679,12 @@ async function startRace() {
       targetSites = targetSites.filter((s) => SITE_ALLOWLIST.includes(s.toUpperCase()));
       if (targetSites.length === 0) {
         console.log('No available sites match your --sites allowlist.');
-        return;
+        process.exit(2);
       }
     }
     await launchCapture(targetSites);
+  } else {
+    process.exit(2); // Exit with a specific code so the CLI wrapper knows no sites were targeted
   }
 }
 

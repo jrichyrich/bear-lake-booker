@@ -63,8 +63,9 @@ export function deletePassword(service: string, account: string): boolean {
  * Retrieves the ReserveAmerica credentials from the keychain.
  */
 export function getReserveAmericaCredentials(account = DEFAULT_ACCOUNT): Credentials {
-  const password = getPassword('ReserveAmerica', account);
-  return { username: account, password };
+  const username = account.includes('@') ? account : `${account}@gmail.com`;
+  const password = getPassword('ReserveAmerica', username);
+  return { username, password };
 }
 
 /**
