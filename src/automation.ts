@@ -146,85 +146,88 @@ export async function openSiteDetails(page: Page, selection: SiteSelection): Pro
 }
 
 export async function prepareOrderDetails(page: Page, agentLabel = ''): Promise<void> {
-  console.log(`${agentLabel}Interacting with Order Details form...`);
+  console.log(`${agentLabel}Filling mandatory order details...`);
 
-  // 1. Occupants (Click, Type, and Trigger Change)
-  const occupantsInput = page.locator('#numoccupants, input[name="numOccupants"], #occupantCount').first();
-  if ((await occupantsInput.count()) > 0) {
-    await occupantsInput.click({ force: true }).catch(() => { });
-    await occupantsInput.fill('1').catch(() => { });
-    await occupantsInput.dispatchEvent('change').catch(() => { });
-    await occupantsInput.dispatchEvent('blur').catch(() => { });
-  }
+  const inputs = [
+    { selector: '#numoccupants, input[name="numOccupants"], #occupantCount', value: '1' },
+    { selector: '#numvehicles, input[name="numVehicles"]', value: '1' }
+  ];
 
-  // 2. Vehicles
-  const numVehicles = page.locator('#numvehicles, input[name="numVehicles"]').first();
-  if ((await numVehicles.count()) > 0) {
-    await numVehicles.click({ force: true }).catch(() => { });
-    await numVehicles.fill('1').catch(() => { });
-    await numVehicles.dispatchEvent('change').catch(() => { });
-    await numVehicles.dispatchEvent('blur').catch(() => { });
-  }
-
-  // 3. Mandatory Checkboxes (Policies, etc.)
-  const checkboxes = await page.locator('input[type="checkbox"]').all();
-  for (const cb of checkboxes) {
-    const isVisible = await cb.isVisible();
-    if (isVisible) {
-      console.log(`${agentLabel}Clicking mandatory checkbox...`);
-      await cb.click({ force: true }).catch(() => { });
-      const id = await cb.getAttribute('id');
-      if (id) await page.click(`label[for="${id}"]`, { force: true }).catch(() => { });
+  for (const { selector, value } of inputs) {
+    const locator = page.locator(selector).first();
+    if (await locator.count() > 0) {
+      await locator.fill(value).catch(() => {});
+      await locator.dispatchEvent('change').catch(() => {});
     }
   }
 
+  const checkboxes = await page.locator('input[type="checkbox"]').all();
+  for (const cb of checkboxes) {
+    if (await cb.isVisible()) {
+      await cb.click({ force: true }).catch(() => {});
+      const id = await cb.getAttribute('id');
+      if (id) await page.click(`label[for="${id}"]`, { force: true }).catch(() => {});
+    }
+  }
   await sleep(500);
 }
 
-export async function addToCart(page: Page, agentLabel = ''): Promise<boolean> {
-  await prepareOrderDetails(page, agentLabel);
-
+async function confirmAddToCart(page: Page, agentLabel = ''): Promise<boolean> {
   const selectors = [
-    '#btnbooknow',
-    '#btnbookdates',
-    'button:has-text("Proceed to Cart")',
-    'button:has-text("Book these Dates")',
-    'button:has-text("Book Now")',
-    '.btn[name="submitSiteForm"]',
-    'input[type="submit"][value="Proceed to Cart"]',
+    '#btnbooknow', '#btnbookdates', 'button:has-text("Proceed to Cart")',
+    'button:has-text("Book these Dates")', 'button:has-text("Book Now")',
+    '.btn[name="submitSiteForm"]', 'input[type="submit"][value="Proceed to Cart"]'
   ];
-
-  console.log(`${agentLabel}Searching for cart confirmation button...`);
 
   for (const selector of selectors) {
     const btn = page.locator(selector).first();
-    if ((await btn.count()) > 0 && (await btn.isVisible())) {
-      console.log(`${agentLabel}Found button with selector: ${selector}. Clicking...`);
+    if (await btn.count() > 0 && await btn.isVisible()) {
       const nav = page.waitForNavigation({ waitUntil: 'networkidle', timeout: 15000 }).catch(() => null);
       await btn.click({ force: true });
       await nav;
 
-      const currentUrl = page.url();
-      if (currentUrl.includes('viewShoppingCart.do') || currentUrl.includes('shoppingCart.do')) {
-        return true;
-      }
-      console.log(`${agentLabel}Clicked, but URL is ${currentUrl}. Looking for more buttons...`);
+      if (page.url().includes('ShoppingCart.do') || page.url().includes('viewShoppingCart.do')) return true;
     }
   }
 
-  const primaryBtn = page.locator('button.primary, .btn-primary, .btn-success').first();
-  if ((await primaryBtn.count()) > 0) {
-    console.log(`${agentLabel}Trying fallback primary button...`);
-    await primaryBtn.click().catch(() => { });
-    await page.waitForLoadState('networkidle').catch(() => { });
+  return page.evaluate(() => 
+    window.location.pathname.includes('ShoppingCart.do') || 
+    (document.body.textContent ?? '').includes('Shopping Cart')
+  );
+}
+
+/**
+ * High-level pipeline to move from Site Details to Shopping Cart.
+ */
+export async function executeBookingFlow(
+  page: Page,
+  targetDate: string,
+  stayLength: string,
+  agentLabel = ''
+): Promise<boolean> {
+  if (!(await prepareSiteForBooking(page, targetDate, stayLength))) return false;
+
+  const bookBtn = page.locator('#btnbookdates, #btnbooknow, button:has-text("Book Now")').first();
+  const nav = page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => null);
+  await bookBtn.click();
+  await nav;
+
+  const isOrderDetails = await page.evaluate(() => 
+    window.location.pathname.includes('/switchBookingAction.do') || 
+    (document.body.textContent ?? '').includes('Order Details')
+  );
+
+  if (isOrderDetails) {
+    await prepareOrderDetails(page, agentLabel);
+    return await confirmAddToCart(page, agentLabel);
   }
 
-  return page.evaluate(
-    () =>
-      window.location.pathname.includes('/viewShoppingCart.do') ||
-      window.location.pathname.includes('/shoppingCart.do') ||
-      (document.body.textContent ?? '').includes('Shopping Cart'),
-  );
+  return page.url().includes('ShoppingCart.do') || page.url().includes('viewShoppingCart.do');
+}
+
+export async function addToCart(page: Page, agentLabel = ''): Promise<boolean> {
+  await prepareOrderDetails(page, agentLabel);
+  return confirmAddToCart(page, agentLabel);
 }
 
 export async function continueToOrderDetails(

@@ -21,8 +21,7 @@ import {
   waitForSearchResults,
   resolveTargetSites,
   openSiteDetails,
-  continueToOrderDetails,
-  addToCart,
+  executeBookingFlow,
   buildDirectSiteUrl,
   submitWithRetry,
   snipeDirectUrl,
@@ -278,22 +277,19 @@ async function holdSite(agentId: number, page: Page, siteId: string): Promise<bo
     return true;
   }
 
-  if (await continueToOrderDetails(page, TARGET_DATE, STAY_LENGTH)) {
-    console.log(`${label}Reached Order Details for ${siteId}. Finalizing hold...`);
+  const secured = await executeBookingFlow(page, TARGET_DATE, STAY_LENGTH, label);
+  if (secured) {
+    await claimSuccess(agentId, siteId, 'order-details');
+    const screenshotPath = `logs/cart-agent-${agentId}-${siteId}-${Date.now()}.png`;
+    await page.screenshot({ path: screenshotPath }).catch(() => { });
+    console.log(`${label}✅ Final hold secured in Shopping Cart! Screenshot: ${screenshotPath}`);
 
-    if (await addToCart(page, label)) {
-      await claimSuccess(agentId, siteId, 'order-details');
-      const screenshotPath = `logs/cart-agent-${agentId}-${siteId}-${Date.now()}.png`;
-      await page.screenshot({ path: screenshotPath }).catch(() => { });
-      console.log(`${label}✅ Final hold secured in Shopping Cart! Screenshot: ${screenshotPath}`);
-
-      if (IS_HEADED) await page.waitForEvent('close').catch(() => { });
-      return true;
-    } else {
-      const errorPath = `logs/fail-cart-agent-${agentId}-${siteId}-${Date.now()}.png`;
-      await page.screenshot({ path: errorPath }).catch(() => { });
-      console.log(`${label}Failed to move to Shopping Cart. Screenshot: ${errorPath}`);
-    }
+    if (IS_HEADED) await page.waitForEvent('close').catch(() => { });
+    return true;
+  } else {
+    const errorPath = `logs/fail-cart-agent-${agentId}-${siteId}-${Date.now()}.png`;
+    await page.screenshot({ path: errorPath }).catch(() => { });
+    console.log(`${label}Failed to secure hold in Shopping Cart. Screenshot: ${errorPath}`);
   }
   return false;
 }
