@@ -3,10 +3,10 @@ import { chromium } from 'playwright-extra';
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 
 chromium.use(StealthPlugin());
-import { resolve } from 'path';
 import { getReserveAmericaCredentials } from './keychain';
 import * as util from 'util';
 import { getThemeArgs } from './theme';
+import { getSessionFile, getSessionPath } from './session-utils';
 
 const LOGIN_URL = 'https://utahstateparks.reserveamerica.com/memberSignIn.do';
 
@@ -45,8 +45,8 @@ async function setupAuth() {
 }
 
 async function launchBrowserForAccount(account?: string): Promise<ActiveSession> {
-  const sessionFile = account ? `session-${account.split('@')[0]}.json` : 'session.json';
-  const sessionPath = resolve(process.cwd(), sessionFile);
+  const sessionFile = getSessionFile(account);
+  const sessionPath = getSessionPath(account);
   const themeArgs = getThemeArgs(account);
   
   const browser = await chromium.launch({ headless: false, args: themeArgs });

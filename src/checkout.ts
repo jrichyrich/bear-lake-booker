@@ -2,18 +2,16 @@ import { chromium } from 'playwright-extra';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 chromium.use(StealthPlugin());
-import { resolve } from 'path';
-import * as fs from 'fs';
 import { getThemeArgs } from './theme';
+import { getSessionPath, sessionExists } from './session-utils';
 
 const CART_URL = 'https://utahstateparks.reserveamerica.com/shoppingCart.do';
 
 async function openCart(accountName: string, color: string) {
-    const sessionFile = `session-${accountName}.json`;
-    const sessionPath = resolve(process.cwd(), sessionFile);
+    const sessionPath = getSessionPath(`${accountName}@gmail.com`); // Expecting account format or suffixing
 
-    if (!fs.existsSync(sessionPath)) {
-        console.log(`❌ Session file not found for ${accountName}`);
+    if (!sessionExists(`${accountName}@gmail.com`)) {
+        console.log(`❌ Session file not found for ${accountName} at ${sessionPath}`);
         return;
     }
 

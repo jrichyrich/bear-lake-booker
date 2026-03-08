@@ -6,11 +6,13 @@ const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 chromium.use(StealthPlugin());
 import { parseArgs } from 'util';
 import * as fs from 'fs';
+import { resolve } from 'path';
 import { searchAvailability, type SiteAvailability } from './reserveamerica';
 import { PARK_URL, SESSION_FILE, USER_AGENTS } from './config';
 import { notifySuccess, type SuccessStage } from './notify';
 import { writeRunSummary } from './reporter';
 import { getThemeArgs } from './theme';
+import { getSessionFile, injectSessionState } from './session-utils';
 import {
   sleep,
   ensureLoggedIn,
@@ -21,7 +23,6 @@ import {
   openSiteDetails,
   continueToOrderDetails,
   addToCart,
-  injectSession,
   buildDirectSiteUrl,
   submitWithRetry,
   snipeDirectUrl,
@@ -357,14 +358,14 @@ async function runSnipeAgent(agentId: number, page: Page, siteId: string) {
 function getAgentSessionFile(agentId: number): string {
   if (ACCOUNTS_LIST.length === 0) return SESSION_FILE;
   const index = (agentId - 1) % ACCOUNTS_LIST.length;
-  const accountPrefix = ACCOUNTS_LIST[index]!.split('@')[0];
-  return `session-${accountPrefix}.json`;
+  return getSessionFile(ACCOUNTS_LIST[index]);
 }
 
 async function createContextForAgent(agentId: number, browser: any | null): Promise<BrowserContext> {
   const label = `[Agent ${agentId}] `;
-  const sessionPath = getAgentSessionFile(agentId);
-  const themeArgs = getThemeArgs(sessionPath);
+  const sessionFile = getAgentSessionFile(agentId);
+  const sessionPath = resolve(process.cwd(), sessionFile);
+  const themeArgs = getThemeArgs(sessionFile);
   const options: any = { headless: !IS_HEADED, timezoneId: 'America/Denver', args: themeArgs };
 
   let context: BrowserContext;
@@ -372,8 +373,8 @@ async function createContextForAgent(agentId: number, browser: any | null): Prom
     const path = `${PROFILE_DIR}/agent-${agentId}`;
     context = await chromium.launchPersistentContext(path, options);
     if (fs.existsSync(sessionPath)) {
-      console.log(`${label}Refreshing session state using ${sessionPath}...`);
-      await injectSession(context, sessionPath);
+      console.log(`${label}Refreshing session state using ${sessionFile}...`);
+      await injectSessionState(context, sessionFile);
     }
   } else {
     if (fs.existsSync(sessionPath)) options.storageState = sessionPath;

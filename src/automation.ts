@@ -1,7 +1,6 @@
-import { type BrowserContext, type Page } from 'playwright';
-import { resolve } from 'path';
-import { PARK_URL, SESSION_FILE, SITE_DETAILS_URL_BASE } from './config';
-import * as fs from 'fs';
+import { type Page } from 'playwright';
+import { PARK_URL, SITE_DETAILS_URL_BASE } from './config';
+import { isSessionValid } from './session-utils';
 
 export type SiteSelection = {
   site: string;
@@ -25,8 +24,7 @@ export async function isErrorPage(page: Page): Promise<boolean> {
 }
 
 export async function ensureLoggedIn(page: Page, agentLabel = ''): Promise<boolean> {
-  const bodyText = (await page.textContent('body')) || '';
-  if (bodyText.includes('Sign Out')) {
+  if (await isSessionValid(page)) {
     console.log(`${agentLabel}✅ Session is valid and logged in.`);
     return true;
   }
@@ -273,30 +271,6 @@ export async function prepareSiteForBooking(
   await nav;
 
   return page.evaluate(() => (document.querySelector('#dateChosen') as HTMLInputElement)?.value === 'true');
-}
-
-export async function injectSession(context: BrowserContext, sessionFile: string = SESSION_FILE): Promise<void> {
-  const sessionPath = resolve(process.cwd(), sessionFile);
-  if (!fs.existsSync(sessionPath)) return;
-
-  const state = JSON.parse(fs.readFileSync(sessionPath, 'utf-8'));
-
-  if (state.cookies) {
-    await context.addCookies(state.cookies);
-  }
-
-  if (state.origins && state.origins.length > 0) {
-    const page = await context.newPage();
-    for (const origin of state.origins) {
-      await page.goto(origin.origin, { waitUntil: 'domcontentloaded' }).catch(() => { });
-      await page.evaluate((data) => {
-        for (const item of data.localStorage) {
-          localStorage.setItem(item.name, item.value);
-        }
-      }, origin).catch(() => { });
-    }
-    await page.close();
-  }
 }
 
 /**

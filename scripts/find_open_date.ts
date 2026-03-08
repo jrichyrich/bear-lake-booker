@@ -1,4 +1,4 @@
-import { searchAvailability } from './src/reserveamerica';
+import { searchAvailability } from '../src/reserveamerica';
 
 async function findDate() {
     const currentDate = new Date();
@@ -23,7 +23,7 @@ async function findDate() {
 
             if (result.exactDateMatches && result.exactDateMatches.length >= 3) {
                 console.log(`SUCCESS! Found ${result.exactDateMatches.length} sites on ${dateStr}`);
-                console.log(result.exactDateMatches.map(s => s.site).join(', '));
+                console.log(result.exactDateMatches.map((s: any) => s.site).join(', '));
                 return dateStr;
             } else if (result.exactDateMatches && result.exactDateMatches.length > 0) {
                 console.log(`  - Only ${result.exactDateMatches.length} sites found on ${dateStr}`);
