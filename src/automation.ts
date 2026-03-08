@@ -315,8 +315,34 @@ export function buildDirectSiteUrl(siteId: string, targetDate: string, stayLengt
 }
 
 /**
- * Submits the search form in a tight retry loop (default: every 200ms for 3s).
- * Returns true as soon as search results appear.
+ * Generic polling utility for async conditions.
+ */
+async function pollUntil<T>(
+  action: () => Promise<T>,
+  condition: (result: T) => boolean | Promise<boolean>,
+  options: { maxDurationMs: number; intervalMs: number; label?: string }
+): Promise<T | null> {
+  const deadline = performance.now() + options.maxDurationMs;
+  let attempt = 0;
+
+  while (performance.now() < deadline) {
+    attempt++;
+    try {
+      const result = await action();
+      if (await condition(result)) return result;
+    } catch {
+      // Action failed - retry
+    }
+    if (performance.now() < deadline) {
+      if (options.label) console.log(`${options.label}Attempt ${attempt} (${options.intervalMs}ms)...`);
+      await sleep(options.intervalMs);
+    }
+  }
+  return null;
+}
+
+/**
+ * Submits the search form in a tight retry loop.
  */
 export async function submitWithRetry(
   page: Page,
@@ -324,15 +350,10 @@ export async function submitWithRetry(
   maxDurationMs = 3000,
   intervalMs = 200,
 ): Promise<boolean> {
-  const deadline = performance.now() + maxDurationMs;
-  let attempt = 0;
-
-  while (performance.now() < deadline) {
-    attempt++;
-    try {
+  const result = await pollUntil(
+    async () => {
       await submitSearchForm(page);
-      // Check if results appeared
-      const hasResults = await page.evaluate(() => {
+      return page.evaluate(() => {
         const body = document.body.textContent ?? '';
         return (
           Boolean(document.querySelector('#calendar .br')) ||
@@ -340,28 +361,16 @@ export async function submitWithRetry(
           body.includes('beyond Reservation Window')
         );
       });
+    },
+    (hasResults) => hasResults,
+    { maxDurationMs, intervalMs, label: agentLabel }
+  );
 
-      if (hasResults) {
-        console.log(`${agentLabel}Search results appeared on attempt ${attempt}.`);
-        return true;
-      }
-    } catch {
-      // Submit may fail if page isn't ready yet — retry
-    }
-
-    if (performance.now() < deadline) {
-      console.log(`${agentLabel}Retry ${attempt} (${intervalMs}ms)...`);
-      await sleep(intervalMs);
-    }
-  }
-
-  console.log(`${agentLabel}Submit retry exhausted after ${attempt} attempts.`);
-  return false;
+  return Boolean(result);
 }
 
 /**
  * Navigates directly to a site booking URL with retry logic.
- * Returns true when the booking form is detected on the page.
  */
 export async function snipeDirectUrl(
   page: Page,
@@ -370,44 +379,19 @@ export async function snipeDirectUrl(
   maxDurationMs = 3000,
   intervalMs = 200,
 ): Promise<boolean> {
-  const deadline = performance.now() + maxDurationMs;
-  let attempt = 0;
-
-  while (performance.now() < deadline) {
-    attempt++;
-    try {
+  const result = await pollUntil(
+    async () => {
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 5000 });
-      const ready = await page.evaluate(() =>
-        Boolean(document.querySelector('#booksiteform')) ||
-        Boolean(document.querySelector('#arrivaldate')),
-      );
+      return page.evaluate(() => ({
+        ready: Boolean(document.querySelector('#booksiteform')) || Boolean(document.querySelector('#arrivaldate')),
+        notAvailable: (document.body.textContent ?? '').toLowerCase().includes('not available')
+      }));
+    },
+    (res) => res.ready || res.notAvailable,
+    { maxDurationMs, intervalMs, label: agentLabel }
+  );
 
-      if (ready) {
-        console.log(`${agentLabel}Site booking form loaded on attempt ${attempt}.`);
-        return true;
-      }
-
-      // Check for "not available" messaging — may need to retry
-      const notAvailable = await page.evaluate(() => {
-        const text = (document.body.textContent ?? '').toLowerCase();
-        return text.includes('not available') || text.includes('unavailable');
-      });
-      if (notAvailable && performance.now() >= deadline) {
-        console.log(`${agentLabel}Site not available after ${attempt} attempts.`);
-        return false;
-      }
-    } catch {
-      // Navigation timeout — retry
-    }
-
-    if (performance.now() < deadline) {
-      console.log(`${agentLabel}Snipe retry ${attempt} (${intervalMs}ms)...`);
-      await sleep(intervalMs);
-    }
-  }
-
-  console.log(`${agentLabel}Snipe retry exhausted after ${attempt} attempts.`);
-  return false;
+  return Boolean(result?.ready);
 }
 
 /**

@@ -263,6 +263,41 @@ async function waitForAvailability(): Promise<SiteAvailability[]> {
 // --- Agent Execution ---
 
 /**
+ * Shared logic for securing a hold on a site.
+ * Navigates from site details -> order details -> cart.
+ */
+async function holdSite(agentId: number, page: Page, siteId: string): Promise<boolean> {
+  const label = `[Agent ${agentId}] `;
+  if (shouldStopAgent(agentId) || isSiteAlreadyHeld(siteId)) return false;
+
+  if (!AUTO_BOOK || DRY_RUN) {
+    await claimSuccess(agentId, siteId, 'site-details');
+    if (SCREENSHOT_ON_WIN) await page.screenshot({ path: `logs/agent-${agentId}-${siteId}-${Date.now()}.png` }).catch(() => { });
+    if (IS_HEADED) await page.waitForEvent('close').catch(() => { });
+    return true;
+  }
+
+  if (await continueToOrderDetails(page, TARGET_DATE, STAY_LENGTH)) {
+    console.log(`${label}Reached Order Details for ${siteId}. Finalizing hold...`);
+
+    if (await addToCart(page, label)) {
+      await claimSuccess(agentId, siteId, 'order-details');
+      const screenshotPath = `logs/cart-agent-${agentId}-${siteId}-${Date.now()}.png`;
+      await page.screenshot({ path: screenshotPath }).catch(() => { });
+      console.log(`${label}✅ Final hold secured in Shopping Cart! Screenshot: ${screenshotPath}`);
+
+      if (IS_HEADED) await page.waitForEvent('close').catch(() => { });
+      return true;
+    } else {
+      const errorPath = `logs/fail-cart-agent-${agentId}-${siteId}-${Date.now()}.png`;
+      await page.screenshot({ path: errorPath }).catch(() => { });
+      console.log(`${label}Failed to move to Shopping Cart. Screenshot: ${errorPath}`);
+    }
+  }
+  return false;
+}
+
+/**
  * Standard agent flow: submit pre-warmed search form, parse results, book.
  */
 async function runAgent(agentId: number, page: Page, preferredSite: string | null) {
@@ -285,36 +320,10 @@ async function runAgent(agentId: number, page: Page, preferredSite: string | nul
       if (isSiteAlreadyHeld(selection.site)) continue;
 
       if (await openSiteDetails(page, selection)) {
-        if (isSiteAlreadyHeld(selection.site)) continue;
-
-        if (!AUTO_BOOK || DRY_RUN) {
-          await claimSuccess(agentId, selection.site, 'site-details');
-          if (SCREENSHOT_ON_WIN) await page.screenshot({ path: `logs/agent-${agentId}-win-${Date.now()}.png` }).catch(() => { });
-          if (IS_HEADED) await page.waitForEvent('close').catch(() => { });
-          return;
-        }
-
-        if (await continueToOrderDetails(page, TARGET_DATE, STAY_LENGTH)) {
-          console.log(`${label}Reached Order Details for ${selection.site}. Finalizing hold...`);
-
-          if (await addToCart(page, label)) {
-            await claimSuccess(agentId, selection.site, 'order-details');
-            const screenshotPath = `logs/cart-agent-${agentId}-${selection.site}-${Date.now()}.png`;
-            await page.screenshot({ path: screenshotPath }).catch(() => { });
-            console.log(`${label}✅ Final hold secured in Shopping Cart! Screenshot: ${screenshotPath}`);
-
-            if (IS_HEADED) await page.waitForEvent('close').catch(() => { });
-            return;
-          } else {
-            const errorPath = `logs/fail-cart-agent-${agentId}-${selection.site}-${Date.now()}.png`;
-            await page.screenshot({ path: errorPath }).catch(() => { });
-            console.log(`${label}Failed to move to Shopping Cart. Screenshot: ${errorPath}`);
-          }
-        }
+        if (await holdSite(agentId, page, selection.site)) return;
       }
     }
   } catch (error) {
-    // Suppress "Target page... has been closed" as that is expected when cancelling agents
     const msg = String(error);
     if (!msg.includes('Target page, context or browser has been closed')) {
       console.error(`[Agent ${agentId}] Error: ${error}`);
@@ -332,37 +341,12 @@ async function runSnipeAgent(agentId: number, page: Page, siteId: string) {
     console.log(`${label}Sniping ${siteId} → ${url}`);
 
     const loaded = await snipeDirectUrl(page, url, label);
-    if (!loaded) {
+    if (loaded) {
+      await holdSite(agentId, page, siteId);
+    } else {
       console.log(`${label}Failed to load site ${siteId} booking page.`);
-      return;
-    }
-
-    if (!AUTO_BOOK || DRY_RUN) {
-      await claimSuccess(agentId, siteId, 'site-details');
-      if (SCREENSHOT_ON_WIN) await page.screenshot({ path: `logs/snipe-${agentId}-${siteId}-${Date.now()}.png` }).catch(() => { });
-      if (IS_HEADED) await page.waitForEvent('close').catch(() => { });
-      return;
-    }
-
-    if (await continueToOrderDetails(page, TARGET_DATE, STAY_LENGTH)) {
-      console.log(`${label}Reached Order Details for ${siteId}. Finalizing hold...`);
-
-      if (await addToCart(page, label)) {
-        await claimSuccess(agentId, siteId, 'order-details');
-        const screenshotPath = `logs/snipe-cart-${agentId}-${siteId}-${Date.now()}.png`;
-        await page.screenshot({ path: screenshotPath }).catch(() => { });
-        console.log(`${label}✅ Final hold secured in Shopping Cart! Screenshot: ${screenshotPath}`);
-
-        if (IS_HEADED) await page.waitForEvent('close').catch(() => { });
-        return;
-      } else {
-        const errorPath = `logs/snipe-fail-${agentId}-${siteId}-${Date.now()}.png`;
-        await page.screenshot({ path: errorPath }).catch(() => { });
-        console.log(`${label}Failed to move to Shopping Cart. Screenshot: ${errorPath}`);
-      }
     }
   } catch (error) {
-    // Suppress "Target page... has been closed" as that is expected when cancelling agents
     const msg = String(error);
     if (!msg.includes('Target page, context or browser has been closed')) {
       console.error(`${label}Error: ${error}`);
@@ -372,11 +356,30 @@ async function runSnipeAgent(agentId: number, page: Page, siteId: string) {
 
 function getAgentSessionFile(agentId: number): string {
   if (ACCOUNTS_LIST.length === 0) return SESSION_FILE;
-  // agentId is 1-indexed, so we map agent 1 -> account index 0
   const index = (agentId - 1) % ACCOUNTS_LIST.length;
-  // Use the username prefix of the email string for the session path
   const accountPrefix = ACCOUNTS_LIST[index]!.split('@')[0];
   return `session-${accountPrefix}.json`;
+}
+
+async function createContextForAgent(agentId: number, browser: any | null): Promise<BrowserContext> {
+  const label = `[Agent ${agentId}] `;
+  const sessionPath = getAgentSessionFile(agentId);
+  const themeArgs = getThemeArgs(sessionPath);
+  const options: any = { headless: !IS_HEADED, timezoneId: 'America/Denver', args: themeArgs };
+
+  let context: BrowserContext;
+  if (PROFILE_MODE === 'persistent') {
+    const path = `${PROFILE_DIR}/agent-${agentId}`;
+    context = await chromium.launchPersistentContext(path, options);
+    if (fs.existsSync(sessionPath)) {
+      console.log(`${label}Refreshing session state using ${sessionPath}...`);
+      await injectSession(context, sessionPath);
+    }
+  } else {
+    if (fs.existsSync(sessionPath)) options.storageState = sessionPath;
+    context = await browser.newContext(options);
+  }
+  return context;
 }
 
 // --- Pre-Warm / Fire Pipeline ---
@@ -386,65 +389,42 @@ function getAgentSessionFile(agentId: number): string {
  * fill search forms. Returns pre-warmed pages ready to fire.
  */
 async function warmUpAgents(targetSites: string[]): Promise<void> {
-  if (PROFILE_MODE === 'persistent') {
-    if (!fs.existsSync(PROFILE_DIR)) fs.mkdirSync(PROFILE_DIR, { recursive: true });
+  if (PROFILE_MODE === 'persistent' && !fs.existsSync(PROFILE_DIR)) {
+    fs.mkdirSync(PROFILE_DIR, { recursive: true });
   }
 
   const browsers: any[] = [];
+  let sharedBrowser: any = null;
+  if (PROFILE_MODE !== 'persistent') {
+    sharedBrowser = await chromium.launch({ headless: !IS_HEADED });
+    browsers.push(sharedBrowser);
+  }
 
   for (let i = 0; i < CONCURRENCY; i++) {
     const agentId = i + 1;
     const label = `[Agent ${agentId}] `;
-    let context: BrowserContext;
-    const sessionPathForTheme = getAgentSessionFile(agentId);
-    const themeArgs = getThemeArgs(sessionPathForTheme);
-
-    if (PROFILE_MODE === 'persistent') {
-      const path = `${PROFILE_DIR}/agent-${agentId}`;
-      const options = { headless: !IS_HEADED, timezoneId: 'America/Denver', args: themeArgs };
-      context = await chromium.launchPersistentContext(path, options);
-
-      const sessionPath = getAgentSessionFile(agentId);
-      if (fs.existsSync(sessionPath)) {
-        console.log(`${label}Refreshing session state using ${sessionPath}...`);
-        await injectSession(context, sessionPath);
-      }
-    } else {
-      const sessionPath = getAgentSessionFile(agentId);
-      const browser = await chromium.launch({ headless: !IS_HEADED, args: themeArgs });
-      browsers.push(browser);
-      const options: any = { timezoneId: 'America/Denver' };
-      if (fs.existsSync(sessionPath)) options.storageState = sessionPath;
-      context = await browser.newContext(options);
-    }
-
+    
+    const context = await createContextForAgent(agentId, sharedBrowser);
     activeContexts.set(agentId, context);
+    
     const page = await context.newPage();
     warmedPages.set(agentId, page);
 
+    await page.goto(PARK_URL, { waitUntil: 'domcontentloaded' });
+    const loggedIn = await ensureLoggedIn(page, label);
+    if (!loggedIn) {
+      console.error(`\n❌ CRITICAL ERROR: Session expired for Agent ${agentId}. Run "npm run auth" manually.\n`);
+      process.exit(1);
+    }
+
     if (!SNIPE_MODE) {
-      // Standard mode: navigate to park page and fill search form
-      await page.goto(PARK_URL, { waitUntil: 'domcontentloaded' });
-      const loggedIn = await ensureLoggedIn(page, label);
-      if (!loggedIn) {
-        console.error(`\n❌ CRITICAL ERROR: Session expired. Run "npm run auth" manually to capture a new session before racing.\n`);
-        process.exit(1);
-      }
       await primeSearchForm(page, LOOP, TARGET_DATE, STAY_LENGTH, label);
       console.log(`${label}✅ Pre-warmed and ready. Form filled.`);
     } else {
-      // Snipe mode: just navigate to park page to warm session
-      await page.goto(PARK_URL, { waitUntil: 'domcontentloaded' });
-      const loggedIn = await ensureLoggedIn(page, label);
-      if (!loggedIn) {
-        console.error(`\n❌ CRITICAL ERROR: Session expired. Run "npm run auth" manually to capture a new session before racing.\n`);
-        process.exit(1);
-      }
       console.log(`${label}✅ Pre-warmed. Will snipe ${targetSites[i] ?? 'first available'} at fire time.`);
     }
   }
 
-  // Store browser reference for cleanup
   (globalThis as any).__sharedBrowsers = browsers;
 }
 
@@ -510,59 +490,44 @@ async function fireAgents(targetSites: string[]): Promise<void> {
 // --- Legacy Launch (non-timed mode) ---
 
 async function launchCapture(targetSites: string[]) {
-  if (PROFILE_MODE === 'persistent') {
-    if (!fs.existsSync(PROFILE_DIR)) fs.mkdirSync(PROFILE_DIR, { recursive: true });
+  if (PROFILE_MODE === 'persistent' && !fs.existsSync(PROFILE_DIR)) {
+    fs.mkdirSync(PROFILE_DIR, { recursive: true });
   }
 
   const browsers: any[] = [];
+  let sharedBrowser: any = null;
+  if (PROFILE_MODE !== 'persistent') {
+    sharedBrowser = await chromium.launch({ headless: !IS_HEADED });
+    browsers.push(sharedBrowser);
+  }
+
   const promises: Promise<void>[] = [];
   for (let i = 0; i < CONCURRENCY; i++) {
     const agentId = i + 1;
-    let context: BrowserContext;
-    const sessionPathForTheme = getAgentSessionFile(agentId);
-    const themeArgs = getThemeArgs(sessionPathForTheme);
-
-    if (PROFILE_MODE === 'persistent') {
-      const path = `${PROFILE_DIR}/agent-${agentId}`;
-      const options = { headless: !IS_HEADED, timezoneId: 'America/Denver', args: themeArgs };
-      context = await chromium.launchPersistentContext(path, options);
-      const sessionPath = getAgentSessionFile(agentId);
-      if (fs.existsSync(sessionPath)) {
-        console.log(`[Agent ${agentId}] Refreshing session state using ${sessionPath}...`);
-        await injectSession(context, sessionPath);
-      }
-    } else {
-      const sessionPath = getAgentSessionFile(agentId);
-      const browser = await chromium.launch({ headless: !IS_HEADED, args: themeArgs });
-      browsers.push(browser);
-      const options: any = { timezoneId: 'America/Denver' };
-      if (fs.existsSync(sessionPath)) options.storageState = sessionPath;
-      context = await browser.newContext(options);
-    }
-
-    activeContexts.set(agentId, context);
-    const page = await context.newPage();
-
-    // Legacy flow: navigate, fill, submit all in one go
     const agent = async () => {
       const label = `[Agent ${agentId}] `;
-      await page.goto(PARK_URL, { waitUntil: 'domcontentloaded' });
-      const loggedIn = await ensureLoggedIn(page, label);
-      if (!loggedIn) {
-        console.error(`\n❌ CRITICAL ERROR: Session expired. Run "npm run auth" manually to capture a new session before racing.\n`);
-        process.exit(1);
+      const context = await createContextForAgent(agentId, sharedBrowser);
+      activeContexts.set(agentId, context);
+      const page = await context.newPage();
+
+      try {
+        await page.goto(PARK_URL, { waitUntil: 'domcontentloaded' });
+        const loggedIn = await ensureLoggedIn(page, label);
+        if (!loggedIn) {
+          console.error(`\n❌ CRITICAL ERROR: Session expired for Agent ${agentId}. Run "npm run auth" manually.\n`);
+          process.exit(1);
+        }
+        await primeSearchForm(page, LOOP, TARGET_DATE, STAY_LENGTH, label);
+        await runAgent(agentId, page, targetSites[i] ?? null);
+      } finally {
+        await context.close().catch(() => { });
       }
-      await primeSearchForm(page, LOOP, TARGET_DATE, STAY_LENGTH, label);
-      await runAgent(agentId, page, targetSites[i] ?? null);
     };
 
     promises.push(sleep(i * 300).then(agent));
   }
 
   await Promise.all(promises);
-  for (const [, context] of activeContexts.entries()) {
-    await context.close().catch(() => { });
-  }
   for (const b of browsers) {
     if (b) await b.close().catch(() => { });
   }
