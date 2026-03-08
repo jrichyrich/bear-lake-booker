@@ -10,9 +10,11 @@
     "auth": "tsx src/auth.ts",
     "setup-keychain": "tsx src/setup-keychain.ts",
     "inspect": "tsx src/inspect.ts",
+    "view-cart": "tsx src/view-cart.ts",
+    "checkout": "tsx src/view-cart.ts --accounts lisarichards1984,jrichards1981",
+    "display-holds": "tsx src/view-cart.ts",
     "test-session": "tsx scripts/test_session.ts",
     "find-open": "tsx scripts/find_open_date.ts",
-    "display-holds": "tsx scripts/display_holds.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
