@@ -12,7 +12,7 @@ import { PARK_URL, SESSION_FILE, USER_AGENTS } from './config';
 import { notifySuccess, type SuccessStage } from './notify';
 import { writeRunSummary } from './reporter';
 import { getThemeArgs } from './theme';
-import { getSessionFile, injectSessionState, getSessionExpiryInfo } from './session-utils';
+import { getSessionFile, injectSessionState, getSessionExpiryInfo, startHeartbeat } from './session-utils';
 import {
   sleep,
   ensureLoggedIn,
@@ -402,6 +402,9 @@ async function warmUpAgents(targetSites: string[]): Promise<void> {
       console.error(`\n❌ CRITICAL ERROR: Session expired for Agent ${agentId}. Run "npm run auth" manually.\n`);
       process.exit(1);
     }
+
+    // Start background heartbeat to keep JSESSIONID alive until fire time
+    await startHeartbeat(page, label);
 
     if (!SNIPE_MODE) {
       await primeSearchForm(page, LOOP, TARGET_DATE, STAY_LENGTH, label);

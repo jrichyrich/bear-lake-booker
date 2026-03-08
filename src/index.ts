@@ -1,6 +1,13 @@
+import { chromium } from 'playwright-extra';
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+chromium.use(StealthPlugin());
+
 import { parseArgs } from 'util';
 import { searchAvailability } from './reserveamerica';
 import { notifySuccess } from './notify';
+import { getSessionPath, startHeartbeat, sessionExists } from './session-utils';
+import { PARK_URL } from './config';
 import { assertBookingWindow } from './timer-utils';
 
 const { values } = parseArgs({
@@ -8,37 +15,30 @@ const { values } = parseArgs({
     date: { type: 'string', short: 'd', default: '07/22/2026' },
     length: { type: 'string', short: 'l', default: '6' },
     loop: { type: 'string', short: 'o', default: 'BIRCH' },
-    interval: { type: 'string', short: 'i' },
-    help: { type: 'boolean', short: 'h' },
+    monitorInterval: { type: 'string', short: 'i' },
   },
 });
-
-if (values.help) {
-  console.log(`
-Bear Lake Booker CLI
-
-Usage:
-  npx tsx src/index.ts [options]
-
-Options:
-  -d, --date <string>     Target arrival date (MM/DD/YYYY) [default: 07/22/2026]
-  -l, --length <string>   Length of stay in nights [default: 6]
-  -o, --loop <string>     Campground loop name [default: BIRCH]
-  -i, --interval <string> Run every X minutes (e.g., -i 5)
-  -h, --help              Show this help message
-  `);
-  process.exit(0);
-}
 
 const TARGET_DATE = values.date!;
 const STAY_LENGTH = values.length!;
 const LOOP = values.loop!;
-const INTERVAL_MINS = values.interval ? parseInt(values.interval, 10) : null;
+const INTERVAL_MINS = values.monitorInterval ? parseInt(values.monitorInterval, 10) : null;
 
 async function main() {
-  if (INTERVAL_MINS) {
-    console.log(`Continuous monitoring enabled: running every ${INTERVAL_MINS} minutes.`);
+  console.log(`\n--- Bear Lake Monitoring Mode ---`);
+  console.log(`Target: ${TARGET_DATE} (${STAY_LENGTH} nights) in ${LOOP} loop`);
 
+  // Optional: Background heartbeat to keep session alive during long monitoring
+  if (INTERVAL_MINS && sessionExists()) {
+    console.log('Initializing background heartbeat to keep session active...');
+    const browser = await chromium.launch({ headless: true });
+    const context = await browser.newContext({ storageState: getSessionPath() });
+    const page = await context.newPage();
+    await startHeartbeat(page, '[Heartbeat] ');
+  }
+
+  if (INTERVAL_MINS) {
+    console.log(`Polling every ${INTERVAL_MINS} minute(s)...`);
     for (; ;) {
       await checkAvailability();
       await sleep(INTERVAL_MINS * 60_000);

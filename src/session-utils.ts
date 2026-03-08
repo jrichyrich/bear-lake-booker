@@ -113,6 +113,45 @@ export async function isSessionValid(page: Page): Promise<boolean> {
 }
 
 /**
+ * Periodically navigates to a protected page to keep the session alive on the server.
+ * Uses randomized intervals to mimic human behavior.
+ */
+export async function startHeartbeat(page: Page, agentLabel = ''): Promise<NodeJS.Timeout> {
+  const MY_ACCOUNT_URL = 'https://utahstateparks.reserveamerica.com/memberAccountHome.do';
+  
+  const beat = async () => {
+    try {
+      const timestamp = new Date().toLocaleTimeString();
+      // Navigate to a low-overhead protected page
+      await page.goto(MY_ACCOUNT_URL, { waitUntil: 'domcontentloaded', timeout: 15000 });
+      
+      const isValid = await isSessionValid(page);
+      if (isValid) {
+        console.log(`${agentLabel}[${timestamp}] Heartbeat: Session is alive.`);
+      } else {
+        console.warn(`${agentLabel}[${timestamp}] Heartbeat Warning: Session appears invalid.`);
+      }
+    } catch {
+      console.warn(`${agentLabel}Heartbeat navigation failed.`);
+    }
+
+    // Schedule next beat with random jitter (5 to 8 minutes)
+    const nextInterval = (5 + Math.random() * 3) * 60_000;
+    timeoutId = setTimeout(beat, nextInterval);
+  };
+
+  let timeoutId: NodeJS.Timeout;
+  // Initial beat
+  await beat();
+  
+  return {
+    // Return a dummy object that can be "cleared" to stop the heartbeat
+    unref() { clearTimeout(timeoutId); },
+    [Symbol.toPrimitive]() { return timeoutId; }
+  } as any;
+}
+
+/**
  * Injects session state into a browser context.
  * Prefers Playwright's native storageState but supports manual injection if needed.
  */
