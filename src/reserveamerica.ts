@@ -111,14 +111,33 @@ export function parseSearchResult(html: string, targetDate: string): Omit<Search
   const $ = cheerio.load(html);
   const calendar = $('#calendar');
   if (calendar.length === 0) {
-    const logDir = path.resolve(process.cwd(), 'logs');
-    if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
-    const filename = `debug-parser-fail-${Date.now()}.html`;
-    fs.writeFileSync(path.join(logDir, filename), html, 'utf-8');
-    throw new Error(`Calendar section was not found in the response. Raw HTML saved to logs/${filename}`);
+    saveDebugHtml(html);
+    throw new Error('Calendar section was not found in the response. Raw HTML saved to logs.');
   }
 
   const arrivalDates = buildArrivalDates(targetDate, countCalendarColumns($));
+  const sites = extractSitesAvailability($, calendar, arrivalDates);
+
+  return {
+    arrivalDates,
+    availableSites: sites.filter((site) => site.availableDates.length > 0),
+    exactDateMatches: sites.filter((site) => site.targetDateAvailable),
+    totalSites: sites.length,
+  };
+}
+
+function saveDebugHtml(html: string) {
+  const logDir = path.resolve(process.cwd(), 'logs');
+  if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
+  const filename = `debug-parser-fail-${Date.now()}.html`;
+  fs.writeFileSync(path.join(logDir, filename), html, 'utf-8');
+}
+
+function extractSitesAvailability(
+  $: cheerio.CheerioAPI,
+  calendar: cheerio.Cheerio<any>,
+  arrivalDates: string[]
+): SiteAvailability[] {
   const sites: SiteAvailability[] = [];
 
   calendar.find('.br').each((_, element) => {
@@ -133,17 +152,7 @@ export function parseSearchResult(html: string, targetDate: string): Omit<Search
       return;
     }
 
-    const statuses = statusElements.toArray().map((el) => {
-      const cell = $(el);
-      const text = cell.text().trim().toUpperCase();
-      if (text) return text;
-
-      // Extract status code from class (e.g., 'status A')
-      const classes = cell.attr('class') || '';
-      const code = classes.split(/\s+/).find((c) => c.length === 1 && /[A-Z]/i.test(c));
-      return code ? code.toUpperCase() : '?';
-    });
-
+    const statuses = extractStatuses($, statusElements);
     const availableDates = arrivalDates.filter((_, index) => statuses[index] === 'A');
 
     sites.push({
@@ -155,12 +164,20 @@ export function parseSearchResult(html: string, targetDate: string): Omit<Search
     });
   });
 
-  return {
-    arrivalDates,
-    availableSites: sites.filter((site) => site.availableDates.length > 0),
-    exactDateMatches: sites.filter((site) => site.targetDateAvailable),
-    totalSites: sites.length,
-  };
+  return sites;
+}
+
+function extractStatuses($: cheerio.CheerioAPI, statusElements: cheerio.Cheerio<any>): string[] {
+  return statusElements.toArray().map((el) => {
+    const cell = $(el);
+    const text = cell.text().trim().toUpperCase();
+    if (text) return text;
+
+    // Extract status code from class (e.g., 'status A')
+    const classes = cell.attr('class') || '';
+    const code = classes.split(/\s+/).find((c) => c.length === 1 && /[A-Z]/i.test(c));
+    return code ? code.toUpperCase() : '?';
+  });
 }
 
 function countCalendarColumns($: cheerio.CheerioAPI): number {

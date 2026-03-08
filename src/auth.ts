@@ -20,6 +20,8 @@ const { values } = util.parseArgs({
 
 const userAccounts = typeof values.user === 'string' ? values.user.split(',').map(s => s.trim()) : [];
 
+type ActiveSession = { browser: any, context: any, sessionFile: string, sessionPath: string };
+
 async function setupAuth() {
   console.log('--- Manual Authentication Mode ---');
   console.log('1. A browser window will open for each account.');
@@ -28,45 +30,55 @@ async function setupAuth() {
   console.log('4. Press Enter in this terminal to save all sessions and exit.\\n');
 
   const usersToAuth = userAccounts.length > 0 ? userAccounts : [undefined];
+  const activeSessions: ActiveSession[] = await Promise.all(usersToAuth.map(launchBrowserForAccount));
 
-  const activeSessions: { browser: any, context: any, sessionFile: string, sessionPath: string }[] = [];
+  const areBrowsersOpen = await waitForUserCompletion(activeSessions);
 
-  const promises = usersToAuth.map(async (account) => {
-    const sessionFile = account ? `session-${account.split('@')[0]}.json` : 'session.json';
-    const sessionPath = resolve(process.cwd(), sessionFile);
+  if (areBrowsersOpen) {
+    await saveSessions(activeSessions);
+  } else {
+    console.log('A browser was closed before sessions could be saved.');
+  }
 
-    const themeArgs = getThemeArgs(account);
-    const browser = await chromium.launch({ headless: false, args: themeArgs });
+  await Promise.all(activeSessions.map(s => s.browser.close().catch(() => { })));
+  process.exit(0);
+}
 
-    const context = await browser.newContext({
-      timezoneId: 'America/Denver',
-    });
+async function launchBrowserForAccount(account?: string): Promise<ActiveSession> {
+  const sessionFile = account ? `session-${account.split('@')[0]}.json` : 'session.json';
+  const sessionPath = resolve(process.cwd(), sessionFile);
+  const themeArgs = getThemeArgs(account);
+  
+  const browser = await chromium.launch({ headless: false, args: themeArgs });
+  const context = await browser.newContext({ timezoneId: 'America/Denver' });
+  const page = await context.newPage();
 
-    activeSessions.push({ browser, context, sessionFile, sessionPath });
-    const page = await context.newPage();
+  await page.goto(LOGIN_URL, { waitUntil: 'domcontentloaded' });
+  await preFillCredentials(page, account);
 
-    await page.goto(LOGIN_URL, { waitUntil: 'domcontentloaded' });
+  return { browser, context, sessionFile, sessionPath };
+}
 
-    try {
-      const creds = getReserveAmericaCredentials(account);
-      if (creds.username && creds.password) {
-        console.log(`Credentials found in keychain for ${creds.username}. Pre-filling form...`);
-        const emailSelector = 'input[aria-label="Email"], input[placeholder*="user name"], #email';
-        const passwordSelector = 'input[aria-label="Password"], input[type="password"]';
-        await page.waitForSelector(emailSelector, { timeout: 10000 });
-        await page.fill(emailSelector, creds.username);
-        await page.fill(passwordSelector, creds.password);
-        console.log(`Form pre-filled for ${account || 'default'}. Please manually click Sign In.`);
-      } else {
-        console.log(`No credentials found in keychain for ${account || 'default'}. Please enter them manually.`);
-      }
-    } catch (e) {
-      console.log(`Could not auto-fill credentials for ${account || 'default'}. Please enter them manually.`);
+async function preFillCredentials(page: any, account?: string) {
+  try {
+    const creds = getReserveAmericaCredentials(account);
+    if (creds.username && creds.password) {
+      console.log(`Credentials found in keychain for ${creds.username}. Pre-filling form...`);
+      const emailSelector = 'input[aria-label="Email"], input[placeholder*="user name"], #email';
+      const passwordSelector = 'input[aria-label="Password"], input[type="password"]';
+      await page.waitForSelector(emailSelector, { timeout: 10000 });
+      await page.fill(emailSelector, creds.username);
+      await page.fill(passwordSelector, creds.password);
+      console.log(`Form pre-filled for ${account || 'default'}. Please manually click Sign In.`);
+    } else {
+      console.log(`No credentials found in keychain for ${account || 'default'}. Please enter them manually.`);
     }
-  });
+  } catch (e) {
+    console.log(`Could not auto-fill credentials for ${account || 'default'}. Please enter them manually.`);
+  }
+}
 
-  await Promise.all(promises);
-
+async function waitForUserCompletion(activeSessions: ActiveSession[]): Promise<boolean> {
   let areBrowsersOpen = true;
   for (const session of activeSessions) {
     session.browser.on('disconnected', () => {
@@ -81,19 +93,16 @@ async function setupAuth() {
       session.browser.on('disconnected', () => resolvePromise());
     }
   });
+  
+  return areBrowsersOpen;
+}
 
-  if (areBrowsersOpen) {
-    console.log('\nSaving session states...');
-    for (const { context, sessionFile, sessionPath } of activeSessions) {
-      await context.storageState({ path: sessionFile });
-      console.log(`✅ Session saved to ${sessionPath}.`);
-    }
-  } else {
-    console.log('A browser was closed before sessions could be saved.');
+async function saveSessions(activeSessions: ActiveSession[]) {
+  console.log('\nSaving session states...');
+  for (const { context, sessionFile, sessionPath } of activeSessions) {
+    await context.storageState({ path: sessionFile });
+    console.log(`✅ Session saved to ${sessionPath}.`);
   }
-
-  await Promise.all(activeSessions.map(s => s.browser.close().catch(() => { })));
-  process.exit(0);
 }
 
 void setupAuth().catch((error) => {
