@@ -25,6 +25,7 @@
 - [x] Decide whether `Order Details` is the permanent automation boundary or just an interim stop.
 - [ ] Decide whether to implement explicit `bookingMode=multi` after persistent profiles land.
 - [x] Add optional non-macOS notifications.
+- [ ] **Multi-Session Support**: Update `multi-hold` mode to support loading an array of distinct `session.json` profiles (e.g. `session-p1.json`, `session-p2.json`) and assigning them to different agents to bypass the single-account cart limit for concurrent holds.
 
 ## Reference Docs
 - [`MULTI_AGENT_PLAN.md`](/Users/jasricha/Documents/Github_Personal/bear-lake-booker/MULTI_AGENT_PLAN.md)

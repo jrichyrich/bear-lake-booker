@@ -310,7 +310,11 @@ async function runAgent(agentId: number, page: Page, preferredSite: string | nul
       }
     }
   } catch (error) {
-    console.error(`[Agent ${agentId}] Error: ${error}`);
+    // Suppress "Target page... has been closed" as that is expected when cancelling agents
+    const msg = String(error);
+    if (!msg.includes('Target page, context or browser has been closed')) {
+      console.error(`[Agent ${agentId}] Error: ${error}`);
+    }
   }
 }
 
@@ -354,7 +358,11 @@ async function runSnipeAgent(agentId: number, page: Page, siteId: string) {
       }
     }
   } catch (error) {
-    console.error(`${label}Error: ${error}`);
+    // Suppress "Target page... has been closed" as that is expected when cancelling agents
+    const msg = String(error);
+    if (!msg.includes('Target page, context or browser has been closed')) {
+      console.error(`${label}Error: ${error}`);
+    }
   }
 }
 
@@ -552,6 +560,19 @@ async function launchCapture(targetSites: string[]) {
 
 async function startRace() {
   console.log('--- Bear Lake Sniper Mode ---');
+  // --- SAFETY WARNINGS ---
+  if (!AUTO_BOOK || DRY_RUN) {
+    console.log('\x1b[43m\x1b[30m ⚠️  WARNING: DRY RUN MODE. Sites will NOT be added to your cart. \x1b[0m');
+    console.log('\x1b[33m You forgot the -b (--book) flag. The script will stop at the Site Details page.\x1b[0m\n');
+  } else {
+    console.log('\x1b[42m\x1b[30m 🏁 AUTO-BOOK ACTIVE. Agents will attempt to add sites to your cart. \x1b[0m\n');
+  }
+
+  if (!IS_HEADED) {
+    console.log('\x1b[41m\x1b[37m 🚨 DANGER: HEADLESS MODE ACTIVE \x1b[0m');
+    console.log('\x1b[31m You forgot the --headed flag. If ReserveAmerica triggers a Captcha, the agents will silently hang and fail.\x1b[0m\n');
+  }
+  // -----------------------
 
   if (TARGET_TIME) {
     // === PRE-WARM PIPELINE ===

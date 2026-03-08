@@ -62,7 +62,25 @@ graph TD
 - If a 24/7 daemon detected an opening at 3 AM, the session would be stale
 - **Impact**: Unattended runs will fail silently after session timeout
 
-#### 3. No Date Range Scanning
+#### System Constraints & 8 AM Protocol
+
+To ensure a successful execution during the critical 8 AM reservation rush, the following protocol must be strictly adhered to:
+
+### 1. The 15-Minute Session Window
+ReserveAmerica employs aggressive anti-bot WAFs and enforces strict idle timeouts on authenticated sessions. 
+- **Rule:** `npm run auth` must be executed no more than **15 to 30 minutes before 8 AM**. 
+- **Why:** Capturing a session the night before will guarantee an expiration. `race.ts` is designed to *fail fast* and instantly abort if the session is invalid, which prevents doomed runs, but leaves no time to recover if triggered precisely at 7:59:55 AM.
+
+### 2. Manual Intervention via Headed Mode
+ReserveAmerica frequently deploys Captchas during high-traffic bursts (like exactly 8:00:00 AM).
+- **Rule:** Live 8 AM races should ALWAYS be run with the `--headed` flag.
+- **Why:** While Playwright Stealth handles most bot detection, a hard Captcha block requires human intervention. Headed mode allows the operator to instantly solve the visual puzzle and allow the agent to continue. Headless agents will simply timeout and fail.
+
+### 3. Single-Account Cart Limits
+- **Rule:** A single account can typically hold only *one* site for a given park/date combination at a time.
+- **Why:** While `race.ts` supports `--bookingMode multi` and `--maxHolds 3`, pushing all agents through the same `session.json` will result in ReserveAmerica blocking the subsequent additions. Securing multiple distinct sites requires multi-account load balancing (planned for future backlog).
+
+## Data Flow & State Management Scanning
 - Both `index.ts` and `race.ts` target a *single* arrival date
 - If you want to monitor `06/01 – 08/31`, you'd have to run ~90 separate instances
 - **Impact**: Dramatically limits coverage for flexible-date trips
