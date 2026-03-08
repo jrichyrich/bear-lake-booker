@@ -7,46 +7,39 @@ export interface Credentials {
 }
 
 /**
+ * Helper to run the macOS 'security' command.
+ */
+function runSecurityCmd(args: string[], options: any = {}): string {
+  try {
+    return execFileSync('security', args, {
+      encoding: 'utf8',
+      ...options,
+    }).trim();
+  } catch (error) {
+    throw error;
+  }
+}
+
+/**
  * Retrieves a password from the macOS Keychain for a given service and account.
- * 
- * @param service The service name (e.g., "ReserveAmerica")
- * @param account The account name (e.g., "user@example.com")
- * @returns The password string if found, or undefined if not.
  */
 export function getPassword(service: string, account: string): string | undefined {
   try {
     // -w: only output the password
-    // -s: service name
-    // -a: account name
-    const password = execFileSync('security', [
-      'find-generic-password',
-      '-s', service,
-      '-a', account,
-      '-w'
-    ], {
-      encoding: 'utf8',
+    return runSecurityCmd(['find-generic-password', '-s', service, '-a', account, '-w'], {
       stdio: ['ignore', 'pipe', 'ignore'], // Ignore stderr to avoid noise if not found
-    }).trim();
-
-    return password;
-  } catch (error) {
+    });
+  } catch {
     return undefined;
   }
 }
 
 /**
  * Securely stores a password in the macOS Keychain for a given service and account.
- * Uses -U to update existing entries.
  */
-export function setPassword(service: string, account: string, password: string) {
+export function setPassword(service: string, account: string, password: string): boolean {
   try {
-    execFileSync('security', [
-      'add-generic-password',
-      '-a', account,
-      '-s', service,
-      '-w', password,
-      '-U'
-    ]);
+    runSecurityCmd(['add-generic-password', '-a', account, '-s', service, '-w', password, '-U']);
     return true;
   } catch (error) {
     console.error(`Failed to save password to keychain: ${error instanceof Error ? error.message : String(error)}`);
@@ -55,20 +48,35 @@ export function setPassword(service: string, account: string, password: string) 
 }
 
 /**
+ * Deletes a password from the macOS Keychain for a given service and account.
+ */
+export function deletePassword(service: string, account: string): boolean {
+  try {
+    runSecurityCmd(['delete-generic-password', '-a', account, '-s', service]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Retrieves the ReserveAmerica credentials from the keychain.
- * Defaults to the account from config.
  */
 export function getReserveAmericaCredentials(account = DEFAULT_ACCOUNT): Credentials {
   const password = getPassword('ReserveAmerica', account);
-  return {
-    username: account,
-    password,
-  };
+  return { username: account, password };
 }
 
 /**
  * Saves ReserveAmerica credentials to the keychain.
  */
-export function saveReserveAmericaCredentials(password: string, account = DEFAULT_ACCOUNT) {
+export function saveReserveAmericaCredentials(password: string, account = DEFAULT_ACCOUNT): boolean {
   return setPassword('ReserveAmerica', account, password);
+}
+
+/**
+ * Deletes ReserveAmerica credentials from the keychain.
+ */
+export function deleteReserveAmericaCredentials(account = DEFAULT_ACCOUNT): boolean {
+  return deletePassword('ReserveAmerica', account);
 }
