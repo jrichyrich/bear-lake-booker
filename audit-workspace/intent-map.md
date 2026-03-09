@@ -1,71 +1,61 @@
-## Intent Map
+# Intent Map
 
-### Chunk: ReserveAmerica API (Wrapper)
-- **Purpose**: Provides a high-level TypeScript interface for interacting with the ReserveAmerica reservation system. Handles HTTP form building and HTML parsing.
-- **User-facing feature(s)**: infrastructure
-- **Files**: `src/reserveamerica.ts`
-- **Key functions/classes**: `searchAvailability`, `parseSearchResult`, `resolveLoopValue`
-- **Inputs**: Search parameters (date, stay length, loop name)
-- **Outputs**: `SearchResult` object containing site availability details
-- **Depends on**: `cheerio`, `src/config.ts`
-- **Risk level**: High (Core dependency for all checking logic)
+### Chunk: ReserveAmerica API Integration
+- **Purpose**: Low-level communication with the ReserveAmerica reservation system using standard HTTP requests.
+- **User-facing feature(s)**: Availability checking, search filtering.
+- **Files**: `src/reserveamerica.ts`, `src/flow.ts`.
+- **Key functions/classes**: `searchAvailability`, `parseSearchResult`, `resolveLoopValue`.
+- **Inputs**: Search parameters (date, length, loop).
+- **Outputs**: `SearchResult` object containing site availability details.
+- **Depends on**: `src/config.ts`.
+- **Risk level**: High (core functionality, sensitive to system changes).
 
-### Chunk: Standard Monitor
-- **Purpose**: A low-overhead CLI entry point for continuous background monitoring of site availability using HTTP polling.
-- **User-facing feature(s)**: Standard Monitoring
-- **Files**: `src/index.ts`
-- **Key functions/classes**: `main`, `checkAvailability`
-- **Inputs**: CLI arguments (date, loop, interval)
-- **Outputs**: Console logs and iMessage notifications
-- **Depends on**: ReserveAmerica API chunk, Utilities chunk
-- **Risk level**: Low
+### Chunk: Standard Monitoring
+- **Purpose**: Continuous background monitoring for campsite openings.
+- **User-facing feature(s)**: "Standard Check", "Continuous Monitoring".
+- **Files**: `src/index.ts`.
+- **Key functions/classes**: `main` polling loop.
+- **Inputs**: CLI arguments (interval, target date).
+- **Outputs**: Console logs, notifications.
+- **Depends on**: `ReserveAmerica API Integration`, `src/notify.ts`.
+- **Risk level**: Low.
 
-### Chunk: Race Mode (Sniper)
-- **Purpose**: A high-concurrency browser automation tool designed to compete for newly released sites using parallel Playwright agents.
-- **User-facing feature(s)**: Competitive Site Capture
-- **Files**: `src/race.ts`
-- **Key functions/classes**: `startRace`, `launchCapture`, `runAgent`, `ensureLoggedIn`, `addToCart`
-- **Inputs**: High-concurrency CLI arguments, credentials from Keychain
-- **Outputs**: "Held" sites in the shopping cart, success notifications, run summaries
-- **Depends on**: ReserveAmerica API chunk, Auth & Session chunk, Infrastructure chunk, Utilities chunk
-- **Risk level**: High (Handles stateful interactions and high-concurrency requests)
+### Chunk: Race Mode (Automation)
+- **Purpose**: High-speed, multi-agent browser automation to secure sites at release time.
+- **User-facing feature(s)**: "Hybrid Capture", "Scheduled Capture".
+- **Files**: `src/race.ts`, `src/automation.ts`.
+- **Key functions/classes**: `runAgent`, `launchCapture`, `primeSearchForm`, `addToCart`.
+- **Inputs**: Target site list, concurrency settings.
+- **Outputs**: Screenshots of successful holds, notification alerts.
+- **Depends on**: `Playwright`, `Authentication & Session Management`, `src/reporter.ts`.
+- **Risk level**: High (complex state management, potential for blocking).
 
-### Chunk: Auth & Session Management
-- **Purpose**: Manages the user's login state, session persistence, and manual diagnostic tools. Syncs cookies and LocalStorage.
-- **User-facing feature(s)**: User Authentication
-- **Files**: `src/auth.ts`, `src/check-session.ts`, `src/view-cart.ts`
-- **Key functions/classes**: `setupAuth`, `checkSession`, `viewCart`, `injectSession`
-- **Inputs**: User credentials, manual login interactions
-- **Outputs**: `session.json` state file
-- **Depends on**: Playwright, Infrastructure chunk
-- **Risk level**: Medium (Critical for Race Mode functionality)
+### Chunk: Authentication & Session Management
+- **Purpose**: Handles user identity, secure credential storage, and session persistence.
+- **User-facing feature(s)**: Authentication login, Session persistence.
+- **Files**: `src/auth.ts`, `src/check-session.ts`, `src/session-manager.ts`, `src/session-utils.ts`, `src/keychain.ts`, `src/setup-keychain.ts`.
+- **Key functions/classes**: `setupAuthForAccounts`, `performAutoLogin`, `ensureActiveSession`, `getPassword`, `saveReserveAmericaCredentials`.
+- **Inputs**: User credentials (manual or keychain).
+- **Outputs**: `session.json` state, macOS Keychain entries.
+- **Depends on**: `macOS Security CLI`, `Playwright`.
+- **Risk level**: High (security of credentials, session validity).
 
-### Chunk: Infrastructure (Keychain & Config)
-- **Purpose**: Provides secure storage for sensitive credentials using the macOS Keychain and centralizes system-wide configuration constants.
-- **User-facing feature(s)**: infrastructure
-- **Files**: `src/keychain.ts`, `src/setup-keychain.ts`, `src/config.ts`
-- **Key functions/classes**: `getReserveAmericaCredentials`, `saveReserveAmericaCredentials`
-- **Inputs**: Manual credential setup
-- **Outputs**: Credentials from Keychain
-- **Depends on**: macOS `security` CLI
-- **Risk level**: Low (but handles sensitive PII)
+### Chunk: Infrastructure & Utilities
+- **Purpose**: Shared configuration, notification logic, and reporting helpers.
+- **User-facing feature(s)**: Notifications, Run reports.
+- **Files**: `src/config.ts`, `src/notify.ts`, `src/reporter.ts`, `src/theme.ts`, `src/timer-utils.ts`.
+- **Key functions/classes**: `notifySuccess`, `writeRunSummary`.
+- **Inputs**: Event data, status updates.
+- **Outputs**: AppleScript notifications, summary log files.
+- **Depends on**: System shell (for notifications).
+- **Risk level**: Low.
 
-### Chunk: Utilities (Reporting & Notify)
-- **Purpose**: Provides unified alerting via AppleScript (iMessage/Desktop) and generates structured run summaries for observability.
-- **User-facing feature(s)**: Notifications
-- **Files**: `src/notify.ts`, `src/reporter.ts`, `src/test-notify.ts`
-- **Key functions/classes**: `notifySuccess`, `writeRunSummary`
-- **Inputs**: Success signals from Monitor or Race mode
-- **Outputs**: iMessage alerts, Desktop notifications, JSON reports in `logs/`
-- **Depends on**: macOS AppleScript
-- **Risk level**: Low
-
-### Chunk: Inspection Utility
-- **Purpose**: Captures and logs raw network traffic for reverse-engineering and debugging the reservation flow.
-- **User-facing feature(s)**: diagnostic
-- **Files**: `src/inspect.ts`
-- **Key functions/classes**: `inspectTraffic`
-- **Inputs**: Browser interactions
-- **Outputs**: Network capture logs
-- **Depends on**: Playwright
-- **Risk level**: Low
+### Chunk: Inspection & Debugging
+- **Purpose**: Development tools for analyzing network traffic and verifying session health.
+- **User-facing feature(s)**: Traffic inspection, session verification.
+- **Files**: `src/inspect.ts`, `src/test-notify.ts`, `src/view-cart.ts`, `scripts/test_session.ts`, `scripts/find_open_date.ts`.
+- **Key functions/classes**: `inspectTraffic`, `viewCart`.
+- **Inputs**: Live network traffic, session files.
+- **Outputs**: Traffic logs, browser views.
+- **Depends on**: `Playwright`.
+- **Risk level**: Medium (leaks traffic data if not handled carefully).

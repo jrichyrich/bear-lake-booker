@@ -59,8 +59,15 @@ export function getSessionPath(account?: string): string {
 
 function migrateLegacyDefaultSession(): void {
   const defaultSessionPath = getSessionPath();
-  if (fs.existsSync(defaultSessionPath)) return;
   if (!fs.existsSync(LEGACY_DEFAULT_SESSION_PATH)) return;
+
+  try {
+    fs.chmodSync(LEGACY_DEFAULT_SESSION_PATH, 0o600);
+  } catch {
+    // Ignore permission errors while hardening the legacy file.
+  }
+
+  if (fs.existsSync(defaultSessionPath)) return;
 
   fs.copyFileSync(LEGACY_DEFAULT_SESSION_PATH, defaultSessionPath);
   try {

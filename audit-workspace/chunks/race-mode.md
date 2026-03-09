@@ -1,24 +1,17 @@
-# Chunk Audit: Race Mode (Sniper)
+# Chunk Audit: Race Mode (Automation)
 
-## 1. Correctness (🔴/🟡/🟢)
-- **Status**: 🟢
-- **Findings**: The coordination logic for multiple agents is sound. The `claimSuccess` and `cancelRemainingAgents` functions correctly manage the lifecycle of parallel agents to prevent over-booking. The `injectSession` function uniquely handles both Cookies and LocalStorage, which is critical for modern session persistence.
+### Dimensions
+- **Performance**: High. Parallel agents (up to 10 by default) provide a significant competitive edge.
+- **Scalability**: High. Uses `launchPersistentContext` to isolate profiles, allowing multiple logged-in accounts.
+- **Error Handling**: Medium. Some hardcoded timeouts (`15000ms`, `10000ms`) may fail under heavy load or slow connections.
 
-## 2. Resiliency (🔴/🟡/🟢)
-- **Status**: 🟢
-- **Findings**: 
-  - `confirmed:` `ensureLoggedIn` provides an automated fallback using Keychain credentials if the saved session is invalid.
-  - `confirmed:` Per-agent persistent profiles prevent data corruption and cookie collisions between parallel browsers.
-  - `confirmed:` The `for (const selection of candidates)` loop ensures agents "hunt" for the next available site if their preferred one is taken.
+### Findings
+- **Confirmed**: `claimSuccess` and `cancelRemainingAgents` correctly implement the "winner-takes-all" pattern to minimize resource waste.
+- **Confirmed**: `primeSearchForm` and `addToCart` are heavily reliant on `page.evaluate` and DOM manipulation, which is brittle but fast.
+- **Confirmed**: `isErrorPage` check is proactive and helps avoid common ReserveAmerica "Oops" pages.
+- **Confirmed**: `prepareOrderDetails` correctly identifies and interacts with common checkout fields like occupants and vehicles.
 
-## 3. Performance (🔴/🟡/🟢)
-- **Status**: 🟢
-- **Findings**: Staggered startup (`sleep(i * 300)`) is an effective strategy to avoid overwhelming the server and the local machine's CPU/RAM.
-
-## 4. Observability (🔴/🟡/🟢)
-- **Status**: 🟢
-- **Findings**: Comprehensive. Automated screenshots on win/fail, per-agent logging, and structured run summaries provide excellent visibility into the bot's behavior.
-
-## 5. Style (🔴/🟡/🟢)
-- **Status**: 🟡
-- **Findings**: The file is becoming large (~500 lines). While logic is grouped, some extraction into smaller helper modules (e.g., `src/automation-helpers.ts`) would improve readability as the feature set grows.
+### Recommendations
+- Replace hardcoded timeouts with configurable values in `config.ts`.
+- Move CSS selectors to a central mapping for easier updates.
+- Implement more robust error recovery (reloads) in `runAgent` if a page fails to load.

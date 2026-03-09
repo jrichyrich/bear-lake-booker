@@ -1,10 +1,12 @@
-## Feature Map
+# Feature Map
 
 | Feature | Chunks Involved | Risk |
 |---------|----------------|------|
-| **Standard Monitoring** | [ReserveAmerica API, Standard Monitor, Utilities] | Low |
-| **Competitive Site Capture** | [ReserveAmerica API, Race Mode, Auth & Session, Infrastructure, Utilities] | High |
-| **User Authentication** | [Auth & Session, Infrastructure] | Medium |
-| **Alerting & Notifications** | [Utilities] | Low |
-| **Reporting & Observability** | [Utilities] | Low |
-| **Diagnostic Utilities** | [Inspection Utility, Auth & Session] | Low |
+| **Campsite Availability Check** | ReserveAmerica API Integration | High |
+| **Standard Monitoring & Polling** | Standard Monitoring, ReserveAmerica API Integration | Low |
+| **Race Mode (Automated Booking)** | Race Mode (Automation), Authentication & Session Management | High |
+| **Multi-Agent Coordination** | Race Mode (Automation) | High |
+| **Manual & Auto Authentication** | Authentication & Session Management | High |
+| **Secure Credential Storage** | Authentication & Session Management | Medium |
+| **Notifications & Reporting** | Infrastructure & Utilities | Low |
+| **Debugging & Inspection Tools** | Inspection & Debugging | Medium |
