@@ -1,0 +1,100 @@
+{
+  "cookies": [
+    {
+      "name": "_GRECAPTCHA",
+      "value": "09AKhCRwhPzx9DgBPI8mHGVovFI1FwzgL-Wzt0RwTTQNAmYIneBL_Y5zKx1wuhc8RMyKmZFA0sK7mCd6vR0XXakPg",
+      "domain": "www.google.com",
+      "path": "/recaptcha",
+      "expires": 1788362484.26941,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "None"
+    },
+    {
+      "name": "JSESSIONID",
+      "value": "CF4A54BF18FD17545AE4A733F0EE7D00.ue1-prod-aspiraone-al2023-web-06",
+      "domain": "utahstateparks.reserveamerica.com",
+      "path": "/",
+      "expires": -1,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "_ga",
+      "value": "GA1.1.2116393248.1772810448",
+      "domain": ".reserveamerica.com",
+      "path": "/",
+      "expires": 1807370667.703112,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "_ga_2ZRZCZ67C5",
+      "value": "GS2.1.s1772810447$o1$g1$t1772810667$j60$l0$h0",
+      "domain": ".reserveamerica.com",
+      "path": "/",
+      "expires": 1807370667.709707,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "AWSALB",
+      "value": "CAH5tZQ06021Wa9BQVqyllQTSiWODjQvSujdqORDNeI5vv9v1gqqMkkSS7lOwj/VUgytQIUx3hI523fdBbYTJMLiDrG/Tq68CwZLlTunQxFRnnrNv1aI0n/Oy9Yr",
+      "domain": "utahstateparks.reserveamerica.com",
+      "path": "/",
+      "expires": 1773415467.862685,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "AWSALBCORS",
+      "value": "CAH5tZQ06021Wa9BQVqyllQTSiWODjQvSujdqORDNeI5vv9v1gqqMkkSS7lOwj/VUgytQIUx3hI523fdBbYTJMLiDrG/Tq68CwZLlTunQxFRnnrNv1aI0n/Oy9Yr",
+      "domain": "utahstateparks.reserveamerica.com",
+      "path": "/",
+      "expires": 1773415467.862715,
+      "httpOnly": false,
+      "secure": true,
+      "sameSite": "None"
+    }
+  ],
+  "origins": [
+    {
+      "origin": "https://utahstateparks.reserveamerica.com",
+      "localStorage": [
+        {
+          "name": "rememberMe",
+          "value": ""
+        },
+        {
+          "name": "NRBA_SESSION",
+          "value": "{\"value\":\"ec44a84ac02cfed0\",\"inactiveAt\":1772812467143,\"expiresAt\":1772824849554,\"updatedAt\":1772810667653,\"sessionReplayMode\":0,\"sessionReplaySentFirstChunk\":false,\"sessionTraceMode\":0,\"traceHarvestStarted\":false,\"loggingMode\":2,\"logApiMode\":0,\"serverTimeDiff\":-90,\"custom\":{},\"numOfResets\":0,\"consent\":false}"
+        },
+        {
+          "name": "username",
+          "value": ""
+        },
+        {
+          "name": "_grecaptcha",
+          "value": "09AKhCRwhAAWTzSi9apFeyI2SwFgMdBgokT5l5UdpnBCce9sLjOZU4F54TRzzT1A9q0uKpcFzTUyTyNYlKYA1wKoTg1u4boJxr21n1mOgin0GrrMa5hySaCdzfuv4Hzz6a"
+        }
+      ]
+    },
+    {
+      "origin": "https://www.google.com",
+      "localStorage": [
+        {
+          "name": "rc::a",
+          "value": "MXFlZ3ZrajF5eXVxaXM="
+        },
+        {
+          "name": "rc::f",
+          "value": "0aALHWB16MoXtvLfSX9_Wn3JyLop_UmY23iOvO5TMqfyU0bV8Tx2no9QvCo923ianN4ctAhL4"
+        }
+      ]
+    }
+  ]
+}

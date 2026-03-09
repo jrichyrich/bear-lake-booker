@@ -423,7 +423,7 @@ async function runAgent(spec: AgentSpec, context: BrowserContext) {
         if (await continueToOrderDetails(page, TARGET_DATE, STAY_LENGTH)) {
           console.log(`${label}Reached Order Details for ${selection.site}. Finalizing hold...`);
 
-          if (await addToCart(page, label)) {
+          if (await addToCart(page, label, account.account, IS_HEADED)) {
             await claimSuccess(agentId, account, selection.site, 'order-details');
             const screenshotPath = `logs/cart-agent-${agentId}-${selection.site}-${Date.now()}.png`;
             await page.screenshot({ path: screenshotPath }).catch(() => {});

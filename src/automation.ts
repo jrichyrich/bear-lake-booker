@@ -2,6 +2,7 @@ import { type BrowserContext, type Page } from 'playwright';
 import { PARK_URL } from './config';
 import { getReserveAmericaCredentials } from './keychain';
 import * as fs from 'fs';
+import * as path from 'path';
 import { getReadableSessionPath, injectSessionState } from './session-utils';
 
 export type SiteSelection = {
@@ -27,42 +28,93 @@ export async function isErrorPage(page: Page): Promise<boolean> {
 
 export type LoginStatus = 'logged-in' | 'success' | 'failed' | 'captcha-required';
 
-export async function ensureLoggedIn(page: Page, agentLabel = ''): Promise<LoginStatus> {
-  const bodyText = (await page.textContent('body')) || '';
-  if (bodyText.includes('Sign Out') || bodyText.includes('My Account')) return 'logged-in';
+function isAuthenticatedBodyText(bodyText: string): boolean {
+  return bodyText.includes('Sign Out') || bodyText.includes('Member Sign Out');
+}
 
-  console.log(`${agentLabel}Not logged in. Attempting automated login...`);
-  
-  // Detect Captcha
-  const hasCaptcha = await page.evaluate(() => {
-    return Boolean(document.querySelector('iframe[src*="recaptcha"]')) || 
-           Boolean(document.querySelector('.g-recaptcha')) ||
-           Boolean(document.querySelector('#arkose')) ||
-           (document.body.textContent ?? '').includes('Verify you are human');
+async function hasLoginForm(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    return Boolean(
+      document.querySelector('input[aria-label="Email"], #AEmailAddress, #email') &&
+      document.querySelector('input[aria-label="Password"], #APassword, #password'),
+    );
   });
+}
 
-  if (hasCaptcha) {
-    console.warn(`${agentLabel}⚠️ Captcha detected! Human intervention required.`);
-    return 'captcha-required';
-  }
+async function isCheckoutLoginPage(page: Page): Promise<boolean> {
+  const bodyText = (await page.textContent('body')) || '';
+  if (bodyText.includes('Sign In to Continue with Checkout')) return true;
 
-  const credentials = getReserveAmericaCredentials();
-  if (!credentials.password) {
-    console.error(`${agentLabel}No password found in Keychain. Login will be manual/guest.`);
-    return 'failed';
-  }
+  const url = page.url();
+  if (url.includes('memberSignInSignUp.do') || url.includes('memberSignIn.do')) return true;
 
-  try {
-    await page.goto('https://utahstateparks.reserveamerica.com/memberSignIn.do', { waitUntil: 'domcontentloaded' });
-    
-    // Check again for captcha on the actual login page
-    if ((await page.textContent('body') || '').includes('Verify you are human')) {
-        return 'captcha-required';
+  const title = await page.title().catch(() => '');
+  return title.includes('Sign In');
+}
+
+function saveCheckoutDebugHtml(html: string) {
+  const logDir = path.resolve(process.cwd(), 'logs');
+  if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
+  const filename = `debug-checkout-fail-${Date.now()}.html`;
+  fs.writeFileSync(path.join(logDir, filename), html, 'utf-8');
+}
+
+async function waitForManualCheckoutAuth(page: Page, agentLabel = ''): Promise<boolean> {
+  console.warn(`${agentLabel}Manual action required: complete checkout sign-in/CAPTCHA in the browser window.`);
+
+  for (;;) {
+    if (page.isClosed()) {
+      return false;
     }
 
-    await page.waitForSelector('input[aria-label="Email"], #AEmailAddress, #email', { timeout: 10000 });
-    await page.fill('input[aria-label="Email"], #AEmailAddress, #email', credentials.username);
-    await page.fill('input[aria-label="Password"], #APassword, #password', credentials.password);
+    const stillOnLogin = await isCheckoutLoginPage(page).catch(() => false);
+    if (!stillOnLogin) {
+      return true;
+    }
+
+    await sleep(1000);
+  }
+}
+
+async function preFillLoginCredentials(page: Page, account: string | undefined, agentLabel = ''): Promise<boolean> {
+  const credentials = getReserveAmericaCredentials(account);
+  if (!credentials.password) {
+    console.error(`${agentLabel}No password found in Keychain. Login will be manual/guest.`);
+    return false;
+  }
+
+  await page.waitForSelector('input[aria-label="Email"], #AEmailAddress, #email', { timeout: 10000 });
+  await page.fill('input[aria-label="Email"], #AEmailAddress, #email', credentials.username);
+  await page.fill('input[aria-label="Password"], #APassword, #password', credentials.password);
+  console.log(`${agentLabel}Pre-filled checkout sign-in for ${credentials.username}.`);
+  return true;
+}
+
+export async function ensureLoggedIn(page: Page, agentLabel = '', account?: string): Promise<LoginStatus> {
+  const bodyText = (await page.textContent('body')) || '';
+  if (isAuthenticatedBodyText(bodyText)) return 'logged-in';
+
+  console.log(`${agentLabel}Not logged in. Attempting automated login...`);
+
+  try {
+    if (!(await isCheckoutLoginPage(page))) {
+      await page.goto('https://utahstateparks.reserveamerica.com/memberSignIn.do', { waitUntil: 'domcontentloaded' });
+    }
+
+    const prefilled = await preFillLoginCredentials(page, account, agentLabel);
+    if (!prefilled) return 'failed';
+
+    const hasCaptcha = await page.evaluate(() => {
+      return Boolean(document.querySelector('iframe[src*="recaptcha"]')) || 
+             Boolean(document.querySelector('.g-recaptcha')) ||
+             Boolean(document.querySelector('#arkose')) ||
+             (document.body.textContent ?? '').includes('Verify you are human');
+    });
+
+    if (hasCaptcha) {
+      console.warn(`${agentLabel}⚠️ Captcha detected! Human intervention required.`);
+      return 'captcha-required';
+    }
 
     const btn = page.locator('button:has-text("Sign In"), input[type="submit"][value="Sign In"]').first();
     await Promise.all([
@@ -71,7 +123,7 @@ export async function ensureLoggedIn(page: Page, agentLabel = ''): Promise<Login
     ]);
 
     const postLoginText = (await page.textContent('body')) || '';
-    if (postLoginText.includes('Sign Out') || postLoginText.includes('My Account')) {
+    if (isAuthenticatedBodyText(postLoginText) || !(await hasLoginForm(page))) {
       console.log(`${agentLabel}✅ Login successful.`);
       return 'success';
     }
@@ -229,50 +281,86 @@ export async function prepareOrderDetails(page: Page, agentLabel = ''): Promise<
   await sleep(500);
 }
 
-export async function addToCart(page: Page, agentLabel = ''): Promise<boolean> {
-  await prepareOrderDetails(page, agentLabel);
+export async function addToCart(page: Page, agentLabel = '', account?: string, headed = false): Promise<boolean> {
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    if (await isCheckoutLoginPage(page)) {
+      console.log(`${agentLabel}Checkout requires login. Attempting session recovery...`);
+      const loginResult = await ensureLoggedIn(page, agentLabel, account);
+      if (loginResult === 'captcha-required') {
+        if (!headed) {
+          console.error(`${agentLabel}Checkout CAPTCHA cannot be solved in headless mode. Re-run with --headed.`);
+          break;
+        }
 
-  const selectors = [
-    '#btnbooknow',
-    '#btnbookdates',
-    'button:has-text("Proceed to Cart")',
-    'button:has-text("Book these Dates")',
-    'button:has-text("Book Now")',
-    '.btn[name="submitSiteForm"]',
-    'input[type="submit"][value="Proceed to Cart"]',
-  ];
+        const recovered = await waitForManualCheckoutAuth(page, agentLabel);
+        if (!recovered) {
+          console.error(`${agentLabel}Timed out waiting for manual checkout sign-in/CAPTCHA.`);
+          break;
+        }
+      } else if (loginResult === 'failed') {
+        break;
+      }
+      await page.waitForLoadState('domcontentloaded').catch(() => {});
+    }
 
-  console.log(`${agentLabel}Searching for cart confirmation button...`);
+    await prepareOrderDetails(page, agentLabel);
 
-  for (const selector of selectors) {
-    const btn = page.locator(selector).first();
-    if ((await btn.count()) > 0 && (await btn.isVisible())) {
-      console.log(`${agentLabel}Found button with selector: ${selector}. Clicking...`);
-      const nav = page.waitForNavigation({ waitUntil: 'networkidle', timeout: 15000 }).catch(() => null);
-      await btn.click({ force: true });
-      await nav;
+    const selectors = [
+      '#btnbooknow',
+      '#btnbookdates',
+      'button:has-text("Proceed to Cart")',
+      'button:has-text("Book these Dates")',
+      'button:has-text("Book Now")',
+      '.btn[name="submitSiteForm"]',
+      'input[type="submit"][value="Proceed to Cart"]',
+    ];
 
-      const currentUrl = page.url();
-      if (currentUrl.includes('viewShoppingCart.do') || currentUrl.includes('shoppingCart.do')) {
+    console.log(`${agentLabel}Searching for cart confirmation button...`);
+
+    for (const selector of selectors) {
+      const btn = page.locator(selector).first();
+      if ((await btn.count()) > 0 && (await btn.isVisible())) {
+        console.log(`${agentLabel}Found button with selector: ${selector}. Clicking...`);
+        const nav = page.waitForNavigation({ waitUntil: 'networkidle', timeout: 15000 }).catch(() => null);
+        await btn.click({ force: true });
+        await nav;
+
+        const currentUrl = page.url();
+        if (currentUrl.includes('viewShoppingCart.do') || currentUrl.includes('shoppingCart.do')) {
+          return true;
+        }
+
+        if (await isCheckoutLoginPage(page)) {
+          console.log(`${agentLabel}Checkout redirected to sign-in. Retrying after login recovery...`);
+          break;
+        }
+
+        console.log(`${agentLabel}Clicked, but URL is ${currentUrl}. Looking for more buttons...`);
+      }
+    }
+
+    const primaryBtn = page.locator('button.primary, .btn-primary, .btn-success').first();
+    if ((await primaryBtn.count()) > 0) {
+      console.log(`${agentLabel}Trying fallback primary button...`);
+      await primaryBtn.click().catch(() => {});
+      await page.waitForLoadState('networkidle').catch(() => {});
+      if (page.url().includes('viewShoppingCart.do') || page.url().includes('shoppingCart.do')) {
         return true;
       }
-      console.log(`${agentLabel}Clicked, but URL is ${currentUrl}. Looking for more buttons...`);
     }
   }
 
-  const primaryBtn = page.locator('button.primary, .btn-primary, .btn-success').first();
-  if ((await primaryBtn.count()) > 0) {
-    console.log(`${agentLabel}Trying fallback primary button...`);
-    await primaryBtn.click().catch(() => {});
-    await page.waitForLoadState('networkidle').catch(() => {});
-  }
+  const html = await page.content().catch(() => '');
+  if (html) saveCheckoutDebugHtml(html);
 
-  return page.evaluate(
-    () =>
+  return page.evaluate(() => {
+    const bodyText = document.body.textContent ?? '';
+    return (
       window.location.pathname.includes('/viewShoppingCart.do') ||
       window.location.pathname.includes('/shoppingCart.do') ||
-      (document.body.textContent ?? '').includes('Shopping Cart'),
-  );
+      bodyText.includes('Shopping Cart')
+    );
+  });
 }
 
 export async function continueToOrderDetails(

@@ -7,7 +7,6 @@ async function findDate() {
     currentDate.setDate(currentDate.getDate() + 1);
 
     for (let i = 0; i < 90; i++) {
-        currentDate.setDate(currentDate.getDate() + 2);
         const m = String(currentDate.getMonth() + 1).padStart(2, '0');
         const d = String(currentDate.getDate()).padStart(2, '0');
         const y = currentDate.getFullYear();
@@ -33,6 +32,7 @@ async function findDate() {
         }
 
         await new Promise(r => setTimeout(r, 500));
+        currentDate.setDate(currentDate.getDate() + 1);
     }
     console.log('No dates found with 3+ sites.');
 }
