@@ -17,6 +17,7 @@ export type CheckoutAuthMode = 'auto' | 'manual';
 const MAX_RETRIES = 3;
 const RETRY_BACKOFF_MS = 5000;
 const ALLOWED_ROW_ACTIONS = ['SEE DETAILS', 'ENTER DATE', 'BOOK NOW', 'BOOK THESE DATES', 'AVAILABLE'];
+const BOOKABLE_STATUS_CODES = new Set(['A', 'B']);
 
 export async function sleep(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -52,6 +53,33 @@ function saveCheckoutDebugHtml(html: string) {
   if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
   const filename = `debug-checkout-fail-${Date.now()}.html`;
   fs.writeFileSync(path.join(logDir, filename), html, 'utf-8');
+}
+
+async function saveBookingDebugArtifacts(page: Page, prefix: string, agentLabel = ''): Promise<void> {
+  const logDir = path.resolve(process.cwd(), 'logs');
+  if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
+
+  const timestamp = Date.now();
+  const screenshotPath = path.join(logDir, `${prefix}-${timestamp}.png`);
+
+  await page.screenshot({ path: screenshotPath, fullPage: true }).catch(() => {});
+  const html = await page.content().catch(() => '');
+  if (html) {
+    fs.writeFileSync(path.join(logDir, `${prefix}-${timestamp}.html`), html, 'utf-8');
+  }
+
+  console.warn(`${agentLabel}Saved booking debug artifacts with prefix ${prefix}-${timestamp}.`);
+}
+
+async function findVisibleActionSelector(page: Page, selectors: string[]): Promise<string | null> {
+  for (const selector of selectors) {
+    const btn = page.locator(selector).first();
+    if ((await btn.count()) > 0 && (await btn.isVisible())) {
+      return selector;
+    }
+  }
+
+  return null;
 }
 
 async function waitForManualCheckoutAuth(page: Page, agentLabel = ''): Promise<boolean> {
@@ -202,16 +230,33 @@ export async function resolveTargetSites(
   stayLength: string,
 ): Promise<SiteSelection[]> {
   return page.evaluate(
-    ({ date, length, allowedActions }) => {
+    ({ date, length, allowedActions, bookableStatusCodes }) => {
+      const requestedNights = Number.parseInt(length, 10);
       const rows = Array.from(document.querySelectorAll<HTMLDivElement>('.br'));
       return rows
         .map((row) => {
           const siteLink = row.querySelector<HTMLAnchorElement>('.siteListLabel a');
           const actionLink = row.querySelector<HTMLAnchorElement>('.td[class*="sitescompareselectorbtn"] a');
           const actionText = actionLink?.textContent?.toUpperCase().trim() ?? '';
+          const statusCells = Array.from(row.querySelectorAll<HTMLDivElement>('.td.status'));
 
           if (!siteLink || !actionLink) return null;
           if (!allowedActions.some((a) => actionText.includes(a))) return null;
+          if (!Number.isFinite(requestedNights) || requestedNights < 1) return null;
+
+          const leadingStatuses = statusCells
+            .slice(0, requestedNights)
+            .map((cell) => {
+              const text = (cell.textContent ?? '').trim().toUpperCase();
+              if (text) return text;
+
+              const classNames = Array.from(cell.classList);
+              const classCode = classNames.find((name) => /^[a-z]$/i.test(name));
+              return classCode ? classCode.toUpperCase() : '';
+            });
+
+          if (leadingStatuses.length < requestedNights) return null;
+          if (!leadingStatuses.every((status) => bookableStatusCodes.includes(status))) return null;
 
           const url = new URL(siteLink.href, window.location.href);
           url.searchParams.set('arvdate', date);
@@ -220,7 +265,12 @@ export async function resolveTargetSites(
         })
         .filter((s): s is SiteSelection => Boolean(s?.site));
     },
-    { date: targetDate, length: stayLength, allowedActions: ALLOWED_ROW_ACTIONS },
+    {
+      date: targetDate,
+      length: stayLength,
+      allowedActions: ALLOWED_ROW_ACTIONS,
+      bookableStatusCodes: Array.from(BOOKABLE_STATUS_CODES),
+    },
   );
 }
 
@@ -377,9 +427,33 @@ export async function continueToOrderDetails(
   const ready = await prepareSiteForBooking(page, targetDate, stayLength);
   if (!ready) return false;
 
-  const btn = page.locator('#btnbookdates, #btnbooknow, button:has-text("Book Now")').first();
+  if (page.url().includes('/switchBookingAction.do')) {
+    return true;
+  }
+
+  const selectors = [
+    '#btnbookdates',
+    '#btnbooknow',
+    'button:has-text("Book Now")',
+    'button:has-text("Book these Dates")',
+    'button:has-text("Proceed to Cart")',
+    '.btn[name="submitSiteForm"]',
+    'input[type="submit"][value="Book Now"]',
+    'input[type="submit"][value="Book these Dates"]',
+    'input[type="submit"][value="Proceed to Cart"]',
+  ];
+  const selector = await findVisibleActionSelector(page, selectors);
+  if (!selector) {
+    await saveBookingDebugArtifacts(page, 'debug-order-details-button-missing');
+    return false;
+  }
+
+  const btn = page.locator(selector).first();
   const nav = page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => null);
-  await btn.click();
+  await btn.click({ force: true }).catch(async () => {
+    await saveBookingDebugArtifacts(page, 'debug-order-details-click-failed');
+    throw new Error(`Unable to click order-details transition button: ${selector}`);
+  });
   await nav;
 
   return page
@@ -388,7 +462,10 @@ export async function continueToOrderDetails(
       { timeout: 15000 },
     )
     .then(() => true)
-    .catch(() => false);
+    .catch(async () => {
+      await saveBookingDebugArtifacts(page, 'debug-order-details-timeout');
+      return false;
+    });
 }
 
 export async function prepareSiteForBooking(
