@@ -1,52 +1,105 @@
 # Bear Lake Booker
 
-Bear Lake Booker is a TypeScript-based CLI tool designed to automate checking for campsite availability at Bear Lake State Park via the ReserveAmerica reservation system. It provides both low-overhead HTTP monitoring and high-concurrency browser automation for competitive booking.
+Bear Lake Booker is a TypeScript CLI for monitoring Bear Lake State Park availability and racing to place a cart hold through ReserveAmerica. It combines lightweight HTTP polling with Playwright-based capture flows for high-contention releases and cancellation pickups.
 
-## Key Technologies
-*   **Runtime:** Node.js
-*   **Language:** TypeScript (strict mode)
-*   **Execution:** `tsx` (TypeScript Execute)
-*   **Automation:** 
-    *   **Native Fetch:** Direct HTTP form submission for standard monitoring.
-    *   **Playwright:** Multi-agent persistent browser automation for "Race Mode".
-*   **Notifications:** AppleScript-based iMessage and Desktop notifications.
-*   **Target:** [Bear Lake State Park](https://utahstateparks.reserveamerica.com/camping/bear-lake-state-park/r/campgroundDetails.do?contractCode=UT&parkId=343061)
+## Current Capabilities
+- Exact-date HTTP monitoring for a target arrival date and stay length.
+- Hybrid race mode that polls first, then launches Playwright agents on a hit.
+- Scheduled race mode for release-window starts.
+- Persistent Playwright profiles, per-agent logs, screenshots, and structured run summaries.
+- Multi-account session support using `.sessions/session-*.json`.
+- `bookingMode=single` and `bookingMode=multi` capture coordination.
+- Manual-safe boundary at cart hold / `Order Details`; final checkout and payment stay manual.
 
-## Architecture
-The project is divided into monitoring and capture phases:
+## Main Entry Points
+- `src/index.ts`: low-overhead monitoring.
+- `src/race.ts`: hybrid and scheduled capture.
+- `src/auth.ts`: manual login and session file creation/renewal.
+- `src/view-cart.ts`: open shopping carts for one or more accounts after a hold.
+- `src/inspect.ts`: inspect ReserveAmerica traffic when the flow changes.
 
-1.  **Standard Monitoring (`src/index.ts`):** 
-    *   Uses `src/reserveamerica.ts` to perform direct HTTP POST requests to the reservation system.
-    *   Parses the returned calendar HTML to determine exact-date and nearby-date availability.
-    *   Designed for long-running, single-threaded monitoring with minimal resource usage.
-2.  **Race Mode (`src/race.ts`):**
-    *   Supports two triggers:
-        *   **Hybrid:** Polls via HTTP first, then launches Playwright agents only when an opening is detected.
-        *   **Scheduled:** Launches agents at a specific time (e.g., 08:00:00) to compete for newly released sites.
-    *   Launches multiple parallel Playwright agents using `launchPersistentContext` isolating cookies, caches, and storage.
-    *   Agents navigate directly to site details to bypass slow calendar interactions.
-    *   Supports explicit `--sites` targeting for release-window races and can pause for manual CAPTCHA resolution when ReserveAmerica challenges cart entry.
-    *   Automation stops after adding a hold to the shopping cart; payment remains manual.
-3.  **Authentication (`src/auth.ts`):**
-    *   Helper to log in manually and save the session state under `.sessions/`.
-    *   Required for `race.ts` to launch automatically logged in.
-4.  **Inspection (`src/inspect.ts`):**
-    *   Utility to capture and log ReserveAmerica network traffic for analyzing the reservation flow.
-
-## Building and Running
+## Setup
 ### Prerequisites
-*   Node.js and npm installed.
-*   Playwright browsers installed: `npx playwright install`
-*   Logged-in session: `npm run auth` (run this once to create the account session under `.sessions/`)
+- Node.js and npm.
+- Playwright browsers: `npx playwright install`
+- ReserveAmerica credentials stored in keychain if you want auto-fill / auto-login helpers: `npm run setup-keychain`
 
-### CLI Commands
-*   **Standard Check:** `npm start -- -d 08/15/2026 -l 3 -o "BIRCH"`
-*   **Continuous Monitoring:** `npm start -- -i 5` (Poll every 5 mins)
-*   **Hybrid Capture:** `npm run race -- -d 08/15/2026 -m 5 -c 4` (HTTP poll, then launch 4 isolated agents on hit)
-*   **Scheduled Capture:** `npm run race -- -c 10 -t 07:59:59 --sites BH09,BH11` (Launch 10 agents at exactly 07:59:59 and focus on specific sites)
-*   **Dry-Run Capture:** `npm run race -- -m 5 -c 1 --dryRun --headed` (Open browser but don't hold site)
-*   **Inspect Traffic:** `npm run inspect`
-*   **Verify Types:** `npx tsc --noEmit`
+### Install
+```bash
+npm install
+npx playwright install
+```
+
+## Session Model
+Sessions are stored under `.sessions/`.
+
+- Default account: `.sessions/session.json`
+- Named account: `.sessions/session-<account-prefix>.json`
+
+Examples:
+- `npm run auth`
+- `npm run auth -- --user lisa@gmail.com`
+- `npm run auth -- --user lisa@gmail.com,jason@gmail.com`
+
+`race.ts` and `view-cart.ts` can validate and renew sessions when needed, but the operationally safe pattern is still to authenticate before a live run.
+
+## Common Commands
+### Monitoring
+- Standard check: `npm start -- -d 08/15/2026 -l 3 -o BIRCH`
+- Continuous monitor: `npm start -- -d 08/15/2026 -l 3 -o BIRCH -i 5`
+
+### Capture
+- Hybrid dry run: `npm run race -- -d 08/15/2026 -l 3 -o BIRCH -m 5 -c 2 --dryRun --headed`
+- Hybrid live hold attempt: `npm run race -- -d 08/15/2026 -l 3 -o BIRCH -m 5 -c 4 --book`
+- Scheduled race with targeted sites: `npm run race -- -d 08/15/2026 -l 3 -o BIRCH -c 10 -t 07:59:59 --sites BH09,BH11 --book`
+- Multi-account run: `npm run race -- -d 08/15/2026 -l 3 -o BIRCH -c 4 --book --accounts lisa@gmail.com,jason@gmail.com`
+- Multi-hold mode: `npm run race -- -d 08/15/2026 -l 3 -o BIRCH -c 4 --book --bookingMode multi --maxHolds 2 --accounts lisa@gmail.com,jason@gmail.com`
+
+### Cart and Session Utilities
+- View default cart: `npm run view-cart`
+- View multiple carts: `npm run view-cart -- --accounts lisa@gmail.com,jason@gmail.com`
+- Test session behavior: `npm run test-session`
+- Find an open date: `npm run find-open`
+
+### Validation
+- Type check: `npx tsc --noEmit`
+- Tests: `npx jest --runInBand`
+
+## Capture Notes
+`src/race.ts` supports these important flags:
+
+- `--book`: continue to `Order Details` and stop there.
+- `--dryRun`: never place a hold.
+- `--accounts <csv>`: spread capture across multiple authenticated accounts.
+- `--bookingMode single|multi`: choose single-winner or multi-hold coordination.
+- `--maxHolds <n>`: cap holds in multi mode.
+- `--sites <csv>`: restrict capture to explicit site IDs.
+- `--headed`: run visible browsers for debugging or manual intervention.
+- `--checkoutAuthMode auto|manual`: choose how checkout re-auth is handled.
 
 ## Safe Boundary
-Bear Lake Booker can automate through the shopping-cart hold step, but it does not automate final payment. ReserveAmerica may still require a checkout sign-in or CAPTCHA before the cart is populated, so the safest live workflow is: pre-authenticate, let agents race, solve any checkout challenge manually, then complete payment yourself from `npm run view-cart`.
+The automation boundary is still intentional: Bear Lake Booker can reach the shopping cart hold state, but it does not complete checkout or payment. ReserveAmerica may still require a CAPTCHA or checkout login during capture, so the live workflow is:
+
+1. Authenticate the account or accounts with `npm run auth`.
+2. Run monitoring or `npm run race`.
+3. If a hold lands, open the cart with `npm run view-cart`.
+4. Complete checkout manually before the hold expires.
+
+## Roadmap
+The main unfinished work is tracked in:
+
+- [`BACKLOG.md`](/Users/lisarichards/.codex/worktrees/b5d4/bear-lake-booker/BACKLOG.md)
+- [`docs/NORTH_STAR.md`](/Users/lisarichards/.codex/worktrees/b5d4/bear-lake-booker/docs/NORTH_STAR.md)
+- [`docs/PHASE1_RUNBOOK.md`](/Users/lisarichards/.codex/worktrees/b5d4/bear-lake-booker/docs/PHASE1_RUNBOOK.md)
+- [`docs/PHASE1_RESULTS.md`](/Users/lisarichards/.codex/worktrees/b5d4/bear-lake-booker/docs/PHASE1_RESULTS.md)
+- [`docs/ARCHITECTURE_ROADMAP.md`](/Users/lisarichards/.codex/worktrees/b5d4/bear-lake-booker/docs/ARCHITECTURE_ROADMAP.md)
+
+Current roadmap priorities are:
+- validate the release-day workflow for 2 accounts at the 8:00 AM window
+- harden and document live `bookingMode=multi`
+- improve scout discovery and target-site selection before launch
+- improve multi-account coordination for up to 6 holds
+- expand proactive session renewal
+- add cross-platform push notifications
+
+Broader features like `--dateRange` scanning and a watchdog daemon are still useful, but they are secondary to the release-window flow described in [`docs/NORTH_STAR.md`](/Users/lisarichards/.codex/worktrees/b5d4/bear-lake-booker/docs/NORTH_STAR.md).

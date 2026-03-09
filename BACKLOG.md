@@ -1,53 +1,63 @@
-# Bear Lake Booker - Backlog
+# Bear Lake Booker Backlog
 
-## Current Status
-- `src/index.ts` uses direct HTTP monitoring for exact-date availability.
-- `src/race.ts` can open site details and stop safely at `Order Details`.
-- `src/auth.ts` creates `session.json` for logged-in Playwright runs.
-- `src/inspect.ts` captures ReserveAmerica network traffic for flow analysis.
-- `src/agent-race.ts` has been removed in favor of the unified Playwright race path.
+## North Star
+- Win the 8:00 AM Bear Lake 4-month release race.
+- Secure up to 6 valid holds across 2 accounts before competitors do.
+- Hand off to manual checkout when CAPTCHA or payment requires a human.
+- See [`docs/NORTH_STAR.md`](/Users/lisarichards/.codex/worktrees/b5d4/bear-lake-booker/docs/NORTH_STAR.md).
 
-## Priority Next Work
-### Phase 1: Parallel Agent Foundation
-- [x] Add persistent Playwright profile support to `src/race.ts`.
-- [x] Add `profiles/` to `.gitignore`.
-- [x] Add per-agent logs and screenshots.
-- [x] Verify `c=2` and `c=4` before attempting `c=10`.
+## Current State
+- `src/index.ts` provides low-overhead HTTP monitoring for a specific arrival date and can fall back to auto-login when the default session expires.
+- `src/race.ts` supports hybrid and scheduled capture, persistent Playwright profiles, targeted site lists, structured run summaries, and both `bookingMode=single` and `bookingMode=multi`.
+- Authentication and session handling now live under `.sessions/` with per-account session files managed by `src/auth.ts`, `src/session-manager.ts`, and `src/session-utils.ts`.
+- Multi-account booking orchestration has been split into dedicated helpers such as `src/account-booker.ts`, `src/account-booker-runtime.ts`, `src/booking-policy.ts`, and `src/site-targeting.ts`.
+- The current safety boundary remains unchanged: automation stops at cart hold / `Order Details`, and payment is still manual.
 
-### Phase 2: Reliability
-- [x] Move shared constants into `src/config.ts`.
-- [x] Move notification logic into a shared utility.
-- [x] Add a reset flow for stale persistent profiles.
-- [x] Add file-based run summaries for successful and failed captures.
+## Active Backlog
+### Phase 1: Release Readiness
+- [ ] Validate the full 8:00 AM release-day runbook with both accounts.
+  This includes session prep, launch timing, CAPTCHA handoff, and cart opening after a hold.
+- [ ] Harden and document live `bookingMode=multi` behavior.
+  Current support exists, but the live operating envelope still needs validation around hold caps, duplicate-site prevention, cross-account routing, and cart contention.
+- [ ] Document recommended release-day commands for:
+  single account dry run, single account live hold, two-account single mode, and two-account multi mode.
+- [ ] Align remaining design docs with the current `.sessions/` model, `bookingMode`, and the operator runbook.
 
-### Phase 3: Product Shape
-- [x] Add a small README derived from `GEMINI.md`.
-- [x] Decide whether `Order Details` is the permanent automation boundary or just an interim stop.
-- [ ] Decide whether to implement explicit `bookingMode=multi` after persistent profiles land.
-- [x] Add optional non-macOS notifications.
-- [ ] **Multi-Session Support**: Update `multi-hold` mode to support loading an array of distinct `session.json` profiles (e.g. `session-p1.json`, `session-p2.json`) and assigning them to different agents to bypass the single-account cart limit for concurrent holds.
+### Phase 2: Release-Window Execution
+- [ ] Add or refine pre-8:00 scout discovery so target sites are known before launch.
+- [ ] Improve agent allocation across 2 accounts so up to 6 holds can be pursued without duplicate effort.
+- [ ] Tighten launch timing and warm-up behavior around the 8:00 AM release event.
+- [ ] Improve target-site allowlisting and prioritization for the release window.
 
-### Phase 5: Autonomous Pipeline
-- [ ] Implement Date Range Scanning (`--dateRange`)
-- [ ] Push Notifications (Twilio / ntfy.sh)
-- [ ] Watchdog Daemon (24/7 background monitor -> race trigger)
-- [ ] Headless Auto-Session Refresh
-*(See `ARCHITECTURE_ROADMAP.md` for full breakdown and testing plans)*
+### Phase 3: Operational Hardening
+- [ ] Add cross-platform push notifications (`ntfy.sh`, Pushover, or Twilio) for hold secured and manual action required events.
+- [ ] Expand session refresh from today’s reactive/manual flow into proactive background renewal for all configured accounts.
+  The repo already has session validation and auto-login primitives, but not a full autonomous refresh loop.
+- [ ] Speed up post-hold manual handoff with more direct cart-opening and clearer operator prompts.
+
+### Later / Optional
+- [ ] Implement date-range scanning (`--dateRange`) for cancellation hunting and broader monitor flows.
+  See [`docs/ARCHITECTURE_ROADMAP.md`](/Users/lisarichards/.codex/worktrees/b5d4/bear-lake-booker/docs/ARCHITECTURE_ROADMAP.md).
+- [ ] Add a watchdog daemon that monitors continuously and triggers `race.ts` internally on a hit.
+  This matters more for cancellation capture than for the 8:00 AM release race.
+- [ ] Revisit broader autonomous monitoring after the release-window flow is proven.
+
+## Completed Milestones
+- [x] Direct HTTP availability monitoring for exact-date searches.
+- [x] Unified Playwright race flow with persistent profiles, per-agent logs, screenshots, and run summaries.
+- [x] Parser test coverage plus focused unit tests for session, booking-policy, site-targeting, and serial task queue helpers.
+- [x] Extracted race support logic into dedicated helpers such as `src/automation.ts`, `src/account-booker.ts`, and `src/session-manager.ts`.
+- [x] Multi-account session file handling via `.sessions/session-*.json`.
+- [x] Site targeting, checkout auth handling, and cart-view support for post-capture manual completion.
+- [x] README and Phase 1 operator runbook updated for the current workflow.
+- [x] North-star mission documented for the 8:00 AM Bear Lake release race.
 
 ## Reference Docs
-- [`ARCHITECTURE_ROADMAP.md`](/Users/lisarichards/Documents/GitHub/bear-lake-booker/ARCHITECTURE_ROADMAP.md)
-- [`MULTI_AGENT_PLAN.md`](/Users/jasricha/Documents/Github_Personal/bear-lake-booker/MULTI_AGENT_PLAN.md)
-- [`MULTI_AGENT_TESTS.md`](/Users/jasricha/Documents/Github_Personal/bear-lake-booker/MULTI_AGENT_TESTS.md)
-- [`MULTI_HOLD_MODE.md`](/Users/jasricha/Documents/Github_Personal/bear-lake-booker/MULTI_HOLD_MODE.md)
-- [`GEMINI.md`](/Users/jasricha/Documents/Github_Personal/bear-lake-booker/GEMINI.md)
-
-## Completed Tasks
-- [x] Initial `.gitignore` setup.
-- [x] Direct HTTP availability monitoring.
-- [x] Shared ReserveAmerica search helper.
-- [x] Logged-in session capture via `auth.ts`.
-- [x] Race flow that reaches site details safely.
-- [x] Safe stop at `Order Details`.
-- [x] Network inspection tooling for request capture.
-- [x] Results-row action parsing fix for multi-agent dry runs.
-- [x] Single-winner cancellation for `c=2 --book`.
+- [`README.md`](/Users/lisarichards/.codex/worktrees/b5d4/bear-lake-booker/README.md)
+- [`docs/NORTH_STAR.md`](/Users/lisarichards/.codex/worktrees/b5d4/bear-lake-booker/docs/NORTH_STAR.md)
+- [`docs/PHASE1_RUNBOOK.md`](/Users/lisarichards/.codex/worktrees/b5d4/bear-lake-booker/docs/PHASE1_RUNBOOK.md)
+- [`docs/PHASE1_RESULTS.md`](/Users/lisarichards/.codex/worktrees/b5d4/bear-lake-booker/docs/PHASE1_RESULTS.md)
+- [`docs/ARCHITECTURE_ROADMAP.md`](/Users/lisarichards/.codex/worktrees/b5d4/bear-lake-booker/docs/ARCHITECTURE_ROADMAP.md)
+- [`docs/MULTI_HOLD_MODE.md`](/Users/lisarichards/.codex/worktrees/b5d4/bear-lake-booker/docs/MULTI_HOLD_MODE.md)
+- [`docs/MULTI_AGENT_PLAN.md`](/Users/lisarichards/.codex/worktrees/b5d4/bear-lake-booker/docs/MULTI_AGENT_PLAN.md)
+- [`docs/MULTI_AGENT_TESTS.md`](/Users/lisarichards/.codex/worktrees/b5d4/bear-lake-booker/docs/MULTI_AGENT_TESTS.md)
