@@ -1,21 +1,22 @@
 import { chromium } from 'playwright-extra';
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 chromium.use(StealthPlugin());
-import * as fs from 'fs';
-import { resolve } from 'path';
+import { getReadableSessionPath, sessionExists, validateSessionActive } from '../src/session-utils';
 
-const SESSION_FILE = 'session.json';
 const PARK_URL = 'https://utahstateparks.reserveamerica.com/campgroundDetails.do?contractCode=UT&parkId=343061';
 const CART_URL = 'https://utahstateparks.reserveamerica.com/shoppingCart.do';
 
 async function openSession() {
-  if (!fs.existsSync(SESSION_FILE)) {
-    console.error('No session file found!'); return;
+  const sessionPath = getReadableSessionPath();
+
+  if (!sessionExists()) {
+    console.error(`No session file found at ${sessionPath}!`);
+    return;
   }
   
   const browser = await chromium.launch({ headless: false });
   const context = await browser.newContext({
-    storageState: SESSION_FILE,
+    storageState: sessionPath,
     timezoneId: 'America/Denver'
   });
   
@@ -24,8 +25,7 @@ async function openSession() {
   console.log('Verifying session at ReserveAmerica root...');
   await page.goto(PARK_URL, { waitUntil: 'domcontentloaded' });
   
-  const html = await page.content();
-  if (html.includes('Sign Out')) {
+  if (await validateSessionActive(page)) {
     console.log('✅ Session active (Sign Out found)! Going to Shopping Cart...');
     await page.goto(CART_URL);
     console.log('Browser is open with cart loaded. Keep window open.');
