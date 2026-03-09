@@ -11,9 +11,11 @@ import { USER_AGENTS } from './config';
 import { notifySuccess, type SuccessStage } from './notify';
 import { type AgentRunSummary, writeRunSummary } from './reporter';
 import { CAPTURE_EXIT_CODES, type CaptureResultArtifact, captureOutcomeToExitCode, type CaptureOutcome } from './flow-contract';
+import { shouldStopAccountAfterCartFailure } from './booking-policy';
 import { getAccountDisplayName, getAccountStorageKey, getReadableSessionPath, normalizeCliAccounts, sessionExists } from './session-utils';
 import { executeLaunchStrategy, parseLaunchMode } from './launch-strategy';
 import { ensureActiveSession } from './session-manager';
+import { SerialTaskQueue } from './serial-task-queue';
 import { filterTargetSiteIds, getInitialTargetSites } from './site-targeting';
 import {
   sleep,
@@ -134,6 +136,10 @@ type AccountRunState = {
   isClosed: boolean;
   winningAgentId: number | null;
   maxHolds: number;
+  bookingQueue: SerialTaskQueue;
+  bookingSitesInFlight: Set<string>;
+  failedBookingSites: Set<string>;
+  consecutiveCartFailures: number;
 };
 
 type AgentContextRecord = {
@@ -170,6 +176,10 @@ const accountRunStates = new Map<string, AccountRunState>(
       isClosed: false,
       winningAgentId: null,
       maxHolds: BOOKING_MODE === 'multi' ? MAX_HOLDS : 1,
+      bookingQueue: new SerialTaskQueue(),
+      bookingSitesInFlight: new Set<string>(),
+      failedBookingSites: new Set<string>(),
+      consecutiveCartFailures: 0,
     },
   ]),
 );
@@ -265,6 +275,27 @@ function isSiteAlreadyHeld(siteId: string): boolean {
   return globalHeldSites.has(siteId);
 }
 
+function hasFailedBookingSite(accountKey: string, siteId: string): boolean {
+  return accountRunStates.get(accountKey)?.failedBookingSites.has(siteId) ?? false;
+}
+
+function reserveAccountBookingSite(accountKey: string, siteId: string): boolean {
+  const accountState = accountRunStates.get(accountKey);
+  if (!accountState || accountState.isClosed) {
+    return false;
+  }
+  if (accountState.bookingSitesInFlight.has(siteId)) {
+    return false;
+  }
+
+  accountState.bookingSitesInFlight.add(siteId);
+  return true;
+}
+
+function releaseAccountBookingSite(accountKey: string, siteId: string): void {
+  accountRunStates.get(accountKey)?.bookingSitesInFlight.delete(siteId);
+}
+
 function shouldStopAgent(agentId: number, accountKey: string): boolean {
   const accountState = accountRunStates.get(accountKey);
   if (!accountState) {
@@ -303,6 +334,10 @@ async function claimSuccess(agentId: number, account: CaptureAccount, siteId: st
   const registered = registerHold(agentId, account, siteId, stage);
   if (!registered) return false;
 
+  if (stage === 'order-details') {
+    accountState.consecutiveCartFailures = 0;
+  }
+
   if (accountState.holds.length >= accountState.maxHolds) {
     console.log(`[${account.displayName}] Max holds reached. Closing agents for this account.`);
     accountState.isClosed = true;
@@ -310,6 +345,29 @@ async function claimSuccess(agentId: number, account: CaptureAccount, siteId: st
     await cancelRemainingAgents(account.storageKey, agentId);
   }
   return true;
+}
+
+async function registerCartFailure(agentId: number, account: CaptureAccount, siteId: string): Promise<void> {
+  const accountState = accountRunStates.get(account.storageKey);
+  if (!accountState) {
+    return;
+  }
+
+  accountState.failedBookingSites.add(siteId);
+  accountState.consecutiveCartFailures += 1;
+
+  if (shouldStopAccountAfterCartFailure(
+    accountState.maxHolds,
+    accountState.holds.length,
+    accountState.consecutiveCartFailures,
+  )) {
+    console.log(
+      `[${account.displayName}] Stopping additional hold attempts after ${accountState.consecutiveCartFailures} consecutive cart failures with ${accountState.holds.length} hold(s) already secured.`,
+    );
+    accountState.isClosed = true;
+    accountState.winningAgentId = null;
+    await cancelRemainingAgents(account.storageKey, agentId);
+  }
 }
 
 async function cancelRemainingAgents(accountKey: string, excludeAgentId: number) {
@@ -411,6 +469,10 @@ async function runAgent(spec: AgentSpec, context: BrowserContext) {
         break;
       }
       if (isSiteAlreadyHeld(selection.site)) continue;
+      if (hasFailedBookingSite(account.storageKey, selection.site)) {
+        console.log(`${label}Skipping ${selection.site}; ${account.displayName} already failed to move it into cart.`);
+        continue;
+      }
       agentSummary.attemptedSites.push(selection.site);
 
       if (await openSiteDetails(page, selection)) {
@@ -429,32 +491,74 @@ async function runAgent(spec: AgentSpec, context: BrowserContext) {
           return;
         }
 
-        if (await continueToOrderDetails(page, TARGET_DATE, STAY_LENGTH)) {
-          console.log(`${label}Reached Order Details for ${selection.site}. Finalizing hold...`);
+        if (!reserveAccountBookingSite(account.storageKey, selection.site)) {
+          console.log(`${label}Skipping ${selection.site}; another agent for ${account.displayName} is already attempting it.`);
+          continue;
+        }
 
-          if (await addToCart(page, label, account.account, IS_HEADED, CHECKOUT_AUTH_MODE)) {
-            await claimSuccess(agentId, account, selection.site, 'order-details');
-            const screenshotPath = `logs/cart-agent-${agentId}-${selection.site}-${Date.now()}.png`;
-            await page.screenshot({ path: screenshotPath }).catch(() => {});
-            console.log(`${label}✅ Final hold secured in Shopping Cart! Screenshot: ${screenshotPath}`);
-            agentSummary.heldSite = selection.site;
-            agentSummary.artifacts.successScreenshotPath = screenshotPath;
-            finishAgentRun(agentSummary, 'order-details-held');
+        try {
+          const accountState = accountRunStates.get(account.storageKey);
+          if (!accountState) {
+            break;
+          }
 
-            if (IS_HEADED) await page.waitForEvent('close').catch(() => {});
-            return;
-          } else {
+          const queuedAhead = accountState.bookingQueue.pendingCount;
+          if (queuedAhead > 0) {
+            console.log(`${label}Waiting for ${queuedAhead} earlier booking attempt(s) for ${account.displayName} before trying ${selection.site}.`);
+          }
+
+          const bookingResult = await accountState.bookingQueue.run(async () => {
+            if (shouldStopAgent(agentId, account.storageKey) || page.isClosed()) {
+              return 'stopped' as const;
+            }
+            if (isSiteAlreadyHeld(selection.site)) {
+              return 'failed' as const;
+            }
+
+            const readyForCart = await continueToOrderDetails(page, TARGET_DATE, STAY_LENGTH);
+            if (!readyForCart) {
+              await registerCartFailure(agentId, account, selection.site);
+              return 'failed' as const;
+            }
+
+            console.log(`${label}Reached Order Details for ${selection.site}. Finalizing hold...`);
+
+            if (await addToCart(page, label, account.account, IS_HEADED, CHECKOUT_AUTH_MODE)) {
+              await claimSuccess(agentId, account, selection.site, 'order-details');
+              const screenshotPath = `logs/cart-agent-${agentId}-${selection.site}-${Date.now()}.png`;
+              await page.screenshot({ path: screenshotPath }).catch(() => {});
+              console.log(`${label}✅ Final hold secured in Shopping Cart! Screenshot: ${screenshotPath}`);
+              agentSummary.heldSite = selection.site;
+              agentSummary.artifacts.successScreenshotPath = screenshotPath;
+              finishAgentRun(agentSummary, 'order-details-held');
+              return 'success' as const;
+            }
+
             const errorPath = `logs/fail-cart-agent-${agentId}-${selection.site}-${Date.now()}.png`;
             await page.screenshot({ path: errorPath }).catch(() => {});
             console.log(`${label}Failed to move to Shopping Cart. Screenshot: ${errorPath}`);
             agentSummary.artifacts.failureScreenshotPaths.push(errorPath);
             agentSummary.outcome = 'cart-failed';
+            await registerCartFailure(agentId, account, selection.site);
+            return 'failed' as const;
+          });
+
+          if (bookingResult === 'success') {
+            if (IS_HEADED) await page.waitForEvent('close').catch(() => {});
+            return;
           }
+
+          if (bookingResult === 'stopped') {
+            finishAgentRun(agentSummary, 'stopped');
+            break;
+          }
+        } finally {
+          releaseAccountBookingSite(account.storageKey, selection.site);
         }
       }
     }
     if (!agentSummary.finishedAt) {
-      finishAgentRun(agentSummary, 'exhausted');
+      finishAgentRun(agentSummary, agentSummary.outcome === 'cart-failed' ? 'cart-failed' : 'exhausted');
     }
   } catch (error) {
     console.error(`[Agent ${agentId}] Error: ${error}`);
@@ -488,6 +592,16 @@ async function launchCapture(targetSites: string[]): Promise<CaptureOutcome> {
 
   if (PROFILE_MODE === 'persistent' && !fs.existsSync(PROFILE_DIR)) {
     fs.mkdirSync(PROFILE_DIR, { recursive: true });
+  }
+
+  if (PROFILE_MODE === 'persistent' && RESET_PROFILES) {
+    for (const account of readyAccountsForRun) {
+      const accountProfileDir = `${PROFILE_DIR}/${account.storageKey}`;
+      if (fs.existsSync(accountProfileDir)) {
+        console.log(`[${account.displayName}] Resetting persistent agent profiles at ${accountProfileDir}.`);
+        fs.rmSync(accountProfileDir, { recursive: true, force: true });
+      }
+    }
   }
 
   let browser: any = null;
