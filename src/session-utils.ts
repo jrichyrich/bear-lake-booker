@@ -31,6 +31,19 @@ export function normalizeAccount(account?: string | null): string | undefined {
   return trimmed.includes('@') ? trimmed : `${trimmed}@gmail.com`;
 }
 
+export function normalizeCliAccounts(accounts: string[], logPrefix = ''): string[] {
+  return accounts
+    .map((account) => account.trim())
+    .filter(Boolean)
+    .map((account) => {
+      const normalized = normalizeAccount(account);
+      if (normalized && !account.includes('@') && account.toLowerCase() !== 'default') {
+        console.warn(`${logPrefix}Account "${account}" resolved to "${normalized}". Prefer using full email addresses.`);
+      }
+      return normalized ?? account;
+    });
+}
+
 export function getAccountDisplayName(account?: string | null): string {
   return normalizeAccount(account) ?? 'default';
 }

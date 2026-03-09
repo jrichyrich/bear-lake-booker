@@ -5,7 +5,7 @@ chromium.use(StealthPlugin());
 
 import { parseArgs } from 'util';
 import { getThemeArgs } from './theme';
-import { getReadableSessionPath, normalizeAccount, validateSessionActive, sessionExists } from './session-utils';
+import { getReadableSessionPath, normalizeAccount, normalizeCliAccounts, validateSessionActive, sessionExists } from './session-utils';
 import { ensureActiveSession } from './session-manager';
 
 const CART_URL = 'https://utahstateparks.reserveamerica.com/viewShoppingCart.do';
@@ -25,7 +25,7 @@ Usage:
   npm run view-cart -- [options]
 
 Options:
-  -a, --accounts <csv>  Comma-separated list of account names (e.g. lisa,jason)
+  -a, --accounts <csv>  Comma-separated list of account emails (e.g. lisa@gmail.com,jason@gmail.com)
   -h, --help            Show help
   `);
   process.exit(0);
@@ -52,10 +52,10 @@ async function openAccountCart(accountName?: string) {
   });
 
   const page = await context.newPage();
-  console.log(`[${displayName}] Verifying session...`);
+  console.log(`[${displayName}] Verifying account session...`);
 
   if (await validateSessionActive(page)) {
-    console.log(`[${displayName}] ✅ Session verified as ACTIVE. Loading Shopping Cart...`);
+    console.log(`[${displayName}] ✅ Account session verified as ACTIVE. Loading Shopping Cart...`);
     await page.goto(CART_URL);
   } else {
     console.error(`[${displayName}] ⚠️ Session expired! Manual login may be required.`);
@@ -93,7 +93,7 @@ async function openAccountCart(accountName?: string) {
 
 async function main() {
   const accountList = values.accounts
-    ? values.accounts.split(',').map(s => s.trim())
+    ? normalizeCliAccounts(values.accounts.split(','), '[View Cart] ')
     : [undefined]; // Use default session if no accounts provided
 
   console.log('--- Bear Lake Booker: Shopping Cart Viewer ---');

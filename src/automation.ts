@@ -4,12 +4,15 @@ import { getReserveAmericaCredentials } from './keychain';
 import * as fs from 'fs';
 import * as path from 'path';
 import { getReadableSessionPath, injectSessionState } from './session-utils';
+import { isAuthenticatedBodyText, looksLikeCheckoutLoginPage } from './checkout-auth';
 
 export type SiteSelection = {
   site: string;
   detailsUrl: string;
   actionText: string;
 };
+
+export type CheckoutAuthMode = 'auto' | 'manual';
 
 const MAX_RETRIES = 3;
 const RETRY_BACKOFF_MS = 5000;
@@ -28,10 +31,6 @@ export async function isErrorPage(page: Page): Promise<boolean> {
 
 export type LoginStatus = 'logged-in' | 'success' | 'failed' | 'captcha-required';
 
-function isAuthenticatedBodyText(bodyText: string): boolean {
-  return bodyText.includes('Sign Out') || bodyText.includes('Member Sign Out');
-}
-
 async function hasLoginForm(page: Page): Promise<boolean> {
   return page.evaluate(() => {
     return Boolean(
@@ -43,13 +42,9 @@ async function hasLoginForm(page: Page): Promise<boolean> {
 
 async function isCheckoutLoginPage(page: Page): Promise<boolean> {
   const bodyText = (await page.textContent('body')) || '';
-  if (bodyText.includes('Sign In to Continue with Checkout')) return true;
-
   const url = page.url();
-  if (url.includes('memberSignInSignUp.do') || url.includes('memberSignIn.do')) return true;
-
   const title = await page.title().catch(() => '');
-  return title.includes('Sign In');
+  return looksLikeCheckoutLoginPage({ bodyText, url, title });
 }
 
 function saveCheckoutDebugHtml(html: string) {
@@ -281,14 +276,25 @@ export async function prepareOrderDetails(page: Page, agentLabel = ''): Promise<
   await sleep(500);
 }
 
-export async function addToCart(page: Page, agentLabel = '', account?: string, headed = false): Promise<boolean> {
+export async function addToCart(
+  page: Page,
+  agentLabel = '',
+  account?: string,
+  headed = false,
+  checkoutAuthMode: CheckoutAuthMode = 'auto',
+): Promise<boolean> {
   for (let attempt = 1; attempt <= 2; attempt++) {
     if (await isCheckoutLoginPage(page)) {
-      console.log(`${agentLabel}Checkout requires login. Attempting session recovery...`);
+      console.log(`${agentLabel}Checkout auth required. Attempting session recovery...`);
       const loginResult = await ensureLoggedIn(page, agentLabel, account);
       if (loginResult === 'captcha-required') {
+        if (checkoutAuthMode !== 'manual') {
+          console.error(`${agentLabel}Checkout CAPTCHA encountered in auto mode. Re-run with --headed --checkoutAuthMode manual.`);
+          break;
+        }
+
         if (!headed) {
-          console.error(`${agentLabel}Checkout CAPTCHA cannot be solved in headless mode. Re-run with --headed.`);
+          console.error(`${agentLabel}Checkout CAPTCHA cannot be solved in headless mode. Re-run with --headed --checkoutAuthMode manual.`);
           break;
         }
 

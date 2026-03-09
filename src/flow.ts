@@ -41,7 +41,7 @@ This wrapper executes the full booking flow mapping to your flowchart:
 It accepts all arguments supported by "npm run race".
 
 Example:
-  npm run flow -- -d 07/08/2026 -l 6 -c 5 -t 07:59:59 --accounts lisarichards1984,jrichards1981 -b
+  npm run flow -- -d 07/08/2026 -l 6 -c 5 -t 07:59:59 --accounts lisarichards1984@gmail.com,jrichards1981@gmail.com -b
     `);
         process.exit(0);
     }

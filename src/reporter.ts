@@ -65,6 +65,7 @@ export interface RunSummary {
   targetTime: string | undefined;
   monitorIntervalMins: number | null;
   launchMode: string;
+  checkoutAuthMode: 'auto' | 'manual';
   autoBook: boolean;
   dryRun: boolean;
   headed: boolean;

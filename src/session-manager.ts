@@ -69,11 +69,11 @@ export async function ensureActiveSession(
   const prefix = options.logPrefix ?? '';
 
   if (await hasActiveSession(normalizedAccount)) {
-    console.log(`${prefix}Session for ${label} is valid. Proceeding.`);
+    console.log(`${prefix}Account session for ${label} is valid for account access. Proceeding.`);
     return 'active';
   }
 
-  console.log(`${prefix}Session for ${label} is expired or missing. Opening headed browser for manual login...`);
+  console.log(`${prefix}Account session for ${label} is expired or missing. Opening headed browser for manual login...`);
 
   const browser = await chromium.launch({
     headless: false,
@@ -99,10 +99,10 @@ export async function ensureActiveSession(
 
     const sessionPath = getSessionPath(normalizedAccount);
     await context.storageState({ path: sessionPath });
-    console.log(`${prefix}Login confirmed. Saved refreshed session to ${sessionPath}.`);
+    console.log(`${prefix}Login confirmed. Saved refreshed account session to ${sessionPath}.`);
     return 'renewed';
   } catch {
-    console.error(`${prefix}Manual login timed out or failed for ${label}.`);
+    console.error(`${prefix}Manual account login timed out or failed for ${label}.`);
     return 'failed';
   } finally {
     await browser.close().catch(() => {});

@@ -1,15 +1,15 @@
 import { chromium } from 'playwright';
 import { PARK_URL } from './config';
-import { getSessionPath, isSessionValid, sessionExists } from './session-utils';
+import { getReadableSessionPath, isSessionValid, sessionExists } from './session-utils';
 
 async function checkSession() {
-  const sessionPath = getSessionPath();
+  const sessionPath = getReadableSessionPath();
   if (!sessionExists()) {
     console.error(`Error: ${sessionPath} not found.`);
     process.exit(1);
   }
 
-  console.log('Checking session validity...');
+  console.log('Checking account session validity...');
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({
     storageState: sessionPath,
@@ -21,7 +21,7 @@ async function checkSession() {
     await page.goto(PARK_URL, { waitUntil: 'domcontentloaded' });
 
     if (await isSessionValid(page)) {
-      console.log('✅ Session is VALID. You are logged in.');
+      console.log('✅ Account session is VALID. You are logged in.');
       
       const bodyText = await page.textContent('body') || '';
       const userMatch = bodyText.match(/Welcome,\s+([^!|]+)/i);
@@ -29,7 +29,7 @@ async function checkSession() {
         console.log(`Logged in as: ${userMatch[1].trim()}`);
       }
     } else {
-      console.log('❌ Session is INVALID or EXPIRED. You are not logged in.');
+      console.log('❌ Account session is INVALID or EXPIRED. You are not logged in.');
     }
   } catch (error) {
     console.error('Error checking session:', error instanceof Error ? error.message : String(error));

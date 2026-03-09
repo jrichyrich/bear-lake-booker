@@ -11,9 +11,10 @@ import { USER_AGENTS } from './config';
 import { notifySuccess, type SuccessStage } from './notify';
 import { type AgentRunSummary, writeRunSummary } from './reporter';
 import { CAPTURE_EXIT_CODES, type CaptureResultArtifact, captureOutcomeToExitCode, type CaptureOutcome } from './flow-contract';
-import { getAccountDisplayName, getAccountStorageKey, getReadableSessionPath, normalizeAccount, sessionExists } from './session-utils';
+import { getAccountDisplayName, getAccountStorageKey, getReadableSessionPath, normalizeCliAccounts, sessionExists } from './session-utils';
 import { executeLaunchStrategy, parseLaunchMode } from './launch-strategy';
 import { ensureActiveSession } from './session-manager';
+import { filterTargetSiteIds, getInitialTargetSites } from './site-targeting';
 import {
   sleep,
   resolveTargetSites,
@@ -43,6 +44,7 @@ const { values } = parseArgs({
     sequential: { type: 'boolean', default: false },
     sites: { type: 'string' },
     accounts: { type: 'string' },
+    checkoutAuthMode: { type: 'string' },
     launchMode: { type: 'string', default: 'preload' },
     help: { type: 'boolean', short: 'h' },
   },
@@ -73,7 +75,8 @@ Options:
   --screenshotOnWin             Capture screenshot upon successful booking
   --sequential                  Book sites one at a time in a single browser
   --sites <csv>                 Target specific sites (e.g., BH03,BH07,BH09)
-  --accounts <csv>              Capture into multiple authenticated accounts
+  --accounts <csv>              Capture into multiple authenticated account emails
+  --checkoutAuthMode <mode>     auto or manual [default: manual when headed, else auto]
   --launchMode <mode>           preload, refresh, or fresh-page [default: preload]
   -h, --help                    Show help
   `);
@@ -97,13 +100,17 @@ const RESET_PROFILES = values.resetProfiles!;
 const SCREENSHOT_ON_WIN = values.screenshotOnWin!;
 const SITE_ALLOWLIST: string[] = values.sites ? values.sites.split(',').map((s) => s.trim().toUpperCase()) : [];
 const LAUNCH_MODE = parseLaunchMode(values.launchMode);
+const CHECKOUT_AUTH_MODE: 'auto' | 'manual' = values.checkoutAuthMode === 'auto'
+  ? 'auto'
+  : values.checkoutAuthMode === 'manual'
+    ? 'manual'
+    : IS_HEADED
+      ? 'manual'
+      : 'auto';
 const RUN_STARTED_AT = Date.now();
 const REQUESTED_ACCOUNTS = typeof values.accounts === 'string'
   ? Array.from(new Set(
-      values.accounts
-        .split(',')
-        .map((account) => normalizeAccount(account))
-        .filter((account): account is string => Boolean(account)),
+      normalizeCliAccounts(values.accounts.split(','), '[Race] '),
     ))
   : [];
 
@@ -387,7 +394,9 @@ async function runAgent(spec: AgentSpec, context: BrowserContext) {
     page = launchResult.page;
     agentSummary.launch = launchResult.telemetry;
 
-    const candidates = await resolveTargetSites(page, TARGET_DATE, STAY_LENGTH);
+    const candidates = (await resolveTargetSites(page, TARGET_DATE, STAY_LENGTH)).filter(
+      (candidate) => SITE_ALLOWLIST.length === 0 || SITE_ALLOWLIST.includes(candidate.site.toUpperCase()),
+    );
     agentSummary.candidateSites = candidates.map((candidate) => candidate.site);
     if (preferredSite) candidates.sort((a) => (a.site === preferredSite ? -1 : 1));
 
@@ -423,7 +432,7 @@ async function runAgent(spec: AgentSpec, context: BrowserContext) {
         if (await continueToOrderDetails(page, TARGET_DATE, STAY_LENGTH)) {
           console.log(`${label}Reached Order Details for ${selection.site}. Finalizing hold...`);
 
-          if (await addToCart(page, label, account.account, IS_HEADED)) {
+          if (await addToCart(page, label, account.account, IS_HEADED, CHECKOUT_AUTH_MODE)) {
             await claimSuccess(agentId, account, selection.site, 'order-details');
             const screenshotPath = `logs/cart-agent-${agentId}-${selection.site}-${Date.now()}.png`;
             await page.screenshot({ path: screenshotPath }).catch(() => {});
@@ -519,9 +528,9 @@ async function launchCapture(targetSites: string[]): Promise<CaptureOutcome> {
 
 async function startRace(): Promise<CaptureOutcome> {
   console.log('--- Bear Lake Sniper Mode ---');
-  requestedSitesForRun = [];
+  requestedSitesForRun = getInitialTargetSites(TARGET_TIME ?? undefined, SITE_ALLOWLIST);
   if (TARGET_TIME) {
-    return launchCapture([]);
+    return launchCapture(requestedSitesForRun);
   }
 
   const result = await waitForAvailability();
@@ -531,7 +540,7 @@ async function startRace(): Promise<CaptureOutcome> {
 
   let targetSites = result.map((s) => s.site);
   if (SITE_ALLOWLIST.length > 0) {
-    targetSites = targetSites.filter((s) => SITE_ALLOWLIST.includes(s.toUpperCase()));
+    targetSites = filterTargetSiteIds(targetSites, SITE_ALLOWLIST);
     if (targetSites.length === 0) {
       console.log('No available sites match your --sites allowlist.');
       return 'no-availability';
@@ -556,6 +565,7 @@ startRace()
       targetTime: TARGET_TIME ?? undefined,
       monitorIntervalMins: MONITOR_INTERVAL_MINS,
       launchMode: LAUNCH_MODE,
+      checkoutAuthMode: CHECKOUT_AUTH_MODE,
       autoBook: AUTO_BOOK,
       dryRun: DRY_RUN,
       headed: IS_HEADED,
@@ -608,6 +618,7 @@ startRace()
       targetTime: TARGET_TIME ?? undefined,
       monitorIntervalMins: MONITOR_INTERVAL_MINS,
       launchMode: LAUNCH_MODE,
+      checkoutAuthMode: CHECKOUT_AUTH_MODE,
       autoBook: AUTO_BOOK,
       dryRun: DRY_RUN,
       headed: IS_HEADED,
