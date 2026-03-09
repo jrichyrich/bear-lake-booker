@@ -1,6 +1,8 @@
-import { type Page } from 'playwright';
-import { PARK_URL, SITE_DETAILS_URL_BASE } from './config';
-import { validateSessionActive } from './session-utils';
+import { type BrowserContext, type Page } from 'playwright';
+import { PARK_URL } from './config';
+import { getReserveAmericaCredentials } from './keychain';
+import * as fs from 'fs';
+import { getReadableSessionPath, injectSessionState } from './session-utils';
 
 export type SiteSelection = {
   site: string;
@@ -23,14 +25,60 @@ export async function isErrorPage(page: Page): Promise<boolean> {
   });
 }
 
-export async function ensureLoggedIn(page: Page, agentLabel = ''): Promise<boolean> {
-  if (await validateSessionActive(page)) {
-    console.log(`${agentLabel}✅ Session verified as ACTIVE.`);
-    return true;
+export type LoginStatus = 'logged-in' | 'success' | 'failed' | 'captcha-required';
+
+export async function ensureLoggedIn(page: Page, agentLabel = ''): Promise<LoginStatus> {
+  const bodyText = (await page.textContent('body')) || '';
+  if (bodyText.includes('Sign Out') || bodyText.includes('My Account')) return 'logged-in';
+
+  console.log(`${agentLabel}Not logged in. Attempting automated login...`);
+  
+  // Detect Captcha
+  const hasCaptcha = await page.evaluate(() => {
+    return Boolean(document.querySelector('iframe[src*="recaptcha"]')) || 
+           Boolean(document.querySelector('.g-recaptcha')) ||
+           Boolean(document.querySelector('#arkose')) ||
+           (document.body.textContent ?? '').includes('Verify you are human');
+  });
+
+  if (hasCaptcha) {
+    console.warn(`${agentLabel}⚠️ Captcha detected! Human intervention required.`);
+    return 'captcha-required';
   }
 
-  console.error(`${agentLabel}❌ CRITICAL ERROR: Session is expired or invalid.`);
-  return false;
+  const credentials = getReserveAmericaCredentials();
+  if (!credentials.password) {
+    console.error(`${agentLabel}No password found in Keychain. Login will be manual/guest.`);
+    return 'failed';
+  }
+
+  try {
+    await page.goto('https://utahstateparks.reserveamerica.com/memberSignIn.do', { waitUntil: 'domcontentloaded' });
+    
+    // Check again for captcha on the actual login page
+    if ((await page.textContent('body') || '').includes('Verify you are human')) {
+        return 'captcha-required';
+    }
+
+    await page.waitForSelector('input[aria-label="Email"], #AEmailAddress, #email', { timeout: 10000 });
+    await page.fill('input[aria-label="Email"], #AEmailAddress, #email', credentials.username);
+    await page.fill('input[aria-label="Password"], #APassword, #password', credentials.password);
+
+    const btn = page.locator('button:has-text("Sign In"), input[type="submit"][value="Sign In"]').first();
+    await Promise.all([
+      page.waitForNavigation({ waitUntil: 'networkidle', timeout: 15000 }).catch(() => {}),
+      btn.click(),
+    ]);
+
+    const postLoginText = (await page.textContent('body')) || '';
+    if (postLoginText.includes('Sign Out') || postLoginText.includes('My Account')) {
+      console.log(`${agentLabel}✅ Login successful.`);
+      return 'success';
+    }
+  } catch (e) {
+    console.error(`${agentLabel}Login failed: ${e}`);
+  }
+  return 'failed';
 }
 
 export async function primeSearchForm(
@@ -146,111 +194,85 @@ export async function openSiteDetails(page: Page, selection: SiteSelection): Pro
 }
 
 export async function prepareOrderDetails(page: Page, agentLabel = ''): Promise<void> {
-  console.log(`${agentLabel}Filling mandatory order details...`);
+  console.log(`${agentLabel}Interacting with Order Details form...`);
 
-  const inputs = [
-    { selector: '#numoccupants, input[name="numOccupants"], #occupantCount', value: '1' },
-    { selector: '#numvehicles, input[name="numVehicles"]', value: '1' }
-  ];
-
-  for (const { selector, value } of inputs) {
-    const locator = page.locator(selector).first();
-    if (await locator.count() > 0) {
-      await locator.fill(value).catch(() => {});
-      await locator.dispatchEvent('change').catch(() => {});
-    }
+  // 1. Occupants (Click, Type, and Trigger Change)
+  const occupantsInput = page.locator('#numoccupants, input[name="numOccupants"], #occupantCount').first();
+  if ((await occupantsInput.count()) > 0) {
+    await occupantsInput.click({ force: true }).catch(() => {});
+    await occupantsInput.fill('1').catch(() => {});
+    await occupantsInput.dispatchEvent('change').catch(() => {});
+    await occupantsInput.dispatchEvent('blur').catch(() => {});
   }
 
+  // 2. Vehicles
+  const numVehicles = page.locator('#numvehicles, input[name="numVehicles"]').first();
+  if ((await numVehicles.count()) > 0) {
+    await numVehicles.click({ force: true }).catch(() => {});
+    await numVehicles.fill('1').catch(() => {});
+    await numVehicles.dispatchEvent('change').catch(() => {});
+    await numVehicles.dispatchEvent('blur').catch(() => {});
+  }
+
+  // 3. Mandatory Checkboxes (Policies, etc.)
   const checkboxes = await page.locator('input[type="checkbox"]').all();
   for (const cb of checkboxes) {
-    if (await cb.isVisible()) {
+    const isVisible = await cb.isVisible();
+    if (isVisible) {
+      console.log(`${agentLabel}Clicking mandatory checkbox...`);
       await cb.click({ force: true }).catch(() => {});
       const id = await cb.getAttribute('id');
       if (id) await page.click(`label[for="${id}"]`, { force: true }).catch(() => {});
     }
   }
+
   await sleep(500);
-}
-
-async function confirmAddToCart(page: Page, agentLabel = ''): Promise<boolean> {
-  const selectors = [
-    '#btnbooknow', '#btnbookdates', 'button:has-text("Proceed to Cart")',
-    'button:has-text("Book these Dates")', 'button:has-text("Book Now")',
-    '.btn[name="submitSiteForm"]', 'input[type="submit"][value="Proceed to Cart"]'
-  ];
-
-  // Combine into a single robust locator
-  const cartButton = page.locator(selectors.join(', ')).first();
-
-  if (await cartButton.isVisible({ timeout: 5000 }).catch(() => false)) {
-    console.log(`${agentLabel}Cart confirmation button found. Clicking...`);
-    await cartButton.click({ force: true });
-    
-    // Wait for URL change to shopping cart
-    try {
-      await page.waitForURL((url) => 
-        url.toString().includes('ShoppingCart.do') || 
-        url.toString().includes('viewShoppingCart.do'), 
-        { timeout: 15000, waitUntil: 'domcontentloaded' }
-      );
-      return true;
-    } catch {
-      console.log(`${agentLabel}Timed out waiting for Shopping Cart URL.`);
-    }
-  }
-
-  return page.evaluate(() => 
-    window.location.pathname.includes('ShoppingCart.do') || 
-    (document.body.textContent ?? '').includes('Shopping Cart')
-  );
-}
-
-/**
- * High-level pipeline to move from Site Details to Shopping Cart.
- */
-export async function executeBookingFlow(
-  page: Page,
-  targetDate: string,
-  stayLength: string,
-  agentLabel = ''
-): Promise<boolean> {
-  const prepared = await prepareSiteForBooking(page, targetDate, stayLength);
-  if (!prepared) {
-    console.error(`${agentLabel}Failed to prepare site for booking (dates/form missing).`);
-    return false;
-  }
-
-  const bookBtn = page.locator('#btnbookdates, #btnbooknow, button:has-text("Book Now")').first();
-  await bookBtn.click();
-
-  // Wait for state transition (either Order Details or Shopping Cart)
-  try {
-    await page.waitForURL((url) => 
-      url.toString().includes('switchBookingAction.do') || 
-      url.toString().includes('ShoppingCart.do') || 
-      url.toString().includes('viewShoppingCart.do'), 
-      { timeout: 15000, waitUntil: 'domcontentloaded' }
-    );
-  } catch (e) {
-    console.error(`${agentLabel}Navigation timeout after clicking initial Book button.`);
-    return false;
-  }
-
-  const currentUrl = page.url();
-  const isOrderDetails = currentUrl.includes('switchBookingAction.do') || 
-                         await page.evaluate(() => (document.body.textContent ?? '').includes('Order Details'));
-
-  if (isOrderDetails) {
-    await prepareOrderDetails(page, agentLabel);
-    return await confirmAddToCart(page, agentLabel);
-  }
-
-  return currentUrl.includes('ShoppingCart.do') || currentUrl.includes('viewShoppingCart.do');
 }
 
 export async function addToCart(page: Page, agentLabel = ''): Promise<boolean> {
   await prepareOrderDetails(page, agentLabel);
-  return confirmAddToCart(page, agentLabel);
+
+  const selectors = [
+    '#btnbooknow',
+    '#btnbookdates',
+    'button:has-text("Proceed to Cart")',
+    'button:has-text("Book these Dates")',
+    'button:has-text("Book Now")',
+    '.btn[name="submitSiteForm"]',
+    'input[type="submit"][value="Proceed to Cart"]',
+  ];
+
+  console.log(`${agentLabel}Searching for cart confirmation button...`);
+
+  for (const selector of selectors) {
+    const btn = page.locator(selector).first();
+    if ((await btn.count()) > 0 && (await btn.isVisible())) {
+      console.log(`${agentLabel}Found button with selector: ${selector}. Clicking...`);
+      const nav = page.waitForNavigation({ waitUntil: 'networkidle', timeout: 15000 }).catch(() => null);
+      await btn.click({ force: true });
+      await nav;
+
+      const currentUrl = page.url();
+      if (currentUrl.includes('viewShoppingCart.do') || currentUrl.includes('shoppingCart.do')) {
+        return true;
+      }
+      console.log(`${agentLabel}Clicked, but URL is ${currentUrl}. Looking for more buttons...`);
+    }
+  }
+
+  const primaryBtn = page.locator('button.primary, .btn-primary, .btn-success').first();
+  if ((await primaryBtn.count()) > 0) {
+    console.log(`${agentLabel}Trying fallback primary button...`);
+    await primaryBtn.click().catch(() => {});
+    await page.waitForLoadState('networkidle').catch(() => {});
+  }
+
+  return page.evaluate(
+    () =>
+      window.location.pathname.includes('/viewShoppingCart.do') ||
+      window.location.pathname.includes('/shoppingCart.do') ||
+      (document.body.textContent ?? '').includes('Shopping Cart'),
+  );
 }
 
 export async function continueToOrderDetails(
@@ -299,109 +321,8 @@ export async function prepareSiteForBooking(
   return page.evaluate(() => (document.querySelector('#dateChosen') as HTMLInputElement)?.value === 'true');
 }
 
-/**
- * Constructs a direct URL to a specific site's details/booking page,
- * bypassing the search flow entirely.
- */
-export function buildDirectSiteUrl(siteId: string, targetDate: string, stayLength: string): string {
-  const params = new URLSearchParams({
-    contractCode: 'UT',
-    parkId: '343061',
-    siteId,
-    arvdate: targetDate,
-    lengthOfStay: stayLength,
-  });
-  return `${SITE_DETAILS_URL_BASE}?${params.toString()}`;
-}
-
-/**
- * Generic polling utility for async conditions.
- */
-async function pollUntil<T>(
-  action: () => Promise<T>,
-  condition: (result: T) => boolean | Promise<boolean>,
-  options: { maxDurationMs: number; intervalMs: number; label?: string }
-): Promise<T | null> {
-  const deadline = performance.now() + options.maxDurationMs;
-  let attempt = 0;
-
-  while (performance.now() < deadline) {
-    attempt++;
-    try {
-      const result = await action();
-      if (await condition(result)) return result;
-    } catch {
-      // Action failed - retry
-    }
-    if (performance.now() < deadline) {
-      if (options.label) console.log(`${options.label}Attempt ${attempt} (${options.intervalMs}ms)...`);
-      await sleep(options.intervalMs);
-    }
-  }
-  return null;
-}
-
-/**
- * Submits the search form in a tight retry loop.
- */
-export async function submitWithRetry(
-  page: Page,
-  agentLabel = '',
-  maxDurationMs = 3000,
-  intervalMs = 200,
-): Promise<boolean> {
-  const result = await pollUntil(
-    async () => {
-      await submitSearchForm(page);
-      return page.evaluate(() => {
-        const body = document.body.textContent ?? '';
-        return (
-          Boolean(document.querySelector('#calendar .br')) ||
-          body.includes('0 site(s) available') ||
-          body.includes('beyond Reservation Window')
-        );
-      });
-    },
-    (hasResults) => hasResults,
-    { maxDurationMs, intervalMs, label: agentLabel }
-  );
-
-  return Boolean(result);
-}
-
-/**
- * Navigates directly to a site booking URL with retry logic.
- */
-export async function snipeDirectUrl(
-  page: Page,
-  url: string,
-  agentLabel = '',
-  maxDurationMs = 3000,
-  intervalMs = 200,
-): Promise<boolean> {
-  const result = await pollUntil(
-    async () => {
-      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 5000 });
-      return page.evaluate(() => ({
-        ready: Boolean(document.querySelector('#booksiteform')) || Boolean(document.querySelector('#arrivaldate')),
-        notAvailable: (document.body.textContent ?? '').toLowerCase().includes('not available')
-      }));
-    },
-    (res) => res.ready || res.notAvailable,
-    { maxDurationMs, intervalMs, label: agentLabel }
-  );
-
-  return Boolean(result?.ready);
-}
-
-/**
- * Pre-warms TCP/TLS connections by making a lightweight HEAD request.
- */
-export async function preWarmConnections(page: Page, agentLabel = '') {
-  try {
-    await page.evaluate((url) => fetch(url, { method: 'HEAD' }).catch(() => { }), PARK_URL);
-    console.log(`${agentLabel}Connection pre-warmed.`);
-  } catch {
-    // Non-critical — silently ignore
-  }
+export async function injectSession(context: BrowserContext, account?: string) {
+  const sessionPath = getReadableSessionPath(account);
+  if (!fs.existsSync(sessionPath)) return;
+  await injectSessionState(context, sessionPath);
 }

@@ -6,40 +6,26 @@ const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 chromium.use(StealthPlugin());
 import { parseArgs } from 'util';
 import * as fs from 'fs';
-import { resolve } from 'path';
 import { searchAvailability, type SiteAvailability } from './reserveamerica';
-import { PARK_URL, SESSION_FILE, USER_AGENTS } from './config';
+import { USER_AGENTS } from './config';
 import { notifySuccess, type SuccessStage } from './notify';
-import { writeRunSummary } from './reporter';
-import { getThemeArgs } from './theme';
-import { getSessionFile, getSessionPath, injectSessionState, getSessionExpiryInfo, startHeartbeat } from './session-utils';
-import { performAutoLogin } from './auth';
+import { type AgentRunSummary, writeRunSummary } from './reporter';
+import { CAPTURE_EXIT_CODES, type CaptureResultArtifact, captureOutcomeToExitCode, type CaptureOutcome } from './flow-contract';
+import { getAccountDisplayName, getAccountStorageKey, getReadableSessionPath, normalizeAccount, sessionExists } from './session-utils';
+import { executeLaunchStrategy, parseLaunchMode } from './launch-strategy';
+import { ensureActiveSession } from './session-manager';
 import {
   sleep,
-  ensureLoggedIn,
-  primeSearchForm,
-  submitSearchForm,
-  waitForSearchResults,
   resolveTargetSites,
   openSiteDetails,
-  executeBookingFlow,
-  buildDirectSiteUrl,
-  submitWithRetry,
-  snipeDirectUrl,
-  preWarmConnections,
+  continueToOrderDetails,
+  addToCart,
+  injectSession,
 } from './automation';
-import {
-  parseTargetTime,
-  msUntilTargetTime,
-  waitForTargetTime,
-  assertBookingWindow,
-  getDynamicMaxDate,
-  getDynamicRandomDate,
-} from './timer-utils';
 
 const { values } = parseArgs({
   options: {
-    date: { type: 'string', short: 'd', default: '07/08/2026' },
+    date: { type: 'string', short: 'd', default: '07/22/2026' },
     length: { type: 'string', short: 'l', default: '6' },
     loop: { type: 'string', short: 'o', default: 'BIRCH' },
     concurrency: { type: 'string', short: 'c', default: '10' },
@@ -56,9 +42,8 @@ const { values } = parseArgs({
     screenshotOnWin: { type: 'boolean', default: false },
     sequential: { type: 'boolean', default: false },
     sites: { type: 'string' },
-    snipe: { type: 'boolean', default: false },
-    warmup: { type: 'string', default: '5' },
     accounts: { type: 'string' },
+    launchMode: { type: 'string', default: 'preload' },
     help: { type: 'boolean', short: 'h' },
   },
 });
@@ -71,46 +56,36 @@ Usage:
   npm run race -- [options]
 
 Options:
-  -d, --date <string>           Target arrival date (MM/DD/YYYY) [default: 07/08/2026]
+  -d, --date <string>           Target arrival date (MM/DD/YYYY) [default: 07/22/2026]
   -l, --length <string>         Length of stay in nights [default: 6]
   -o, --loop <string>           Campground loop name [default: BIRCH]
   -c, --concurrency <number>    Number of parallel agents [default: 10]
   -m, --monitorInterval <mins>  Poll via HTTP every X minutes until an exact-date opening appears
-  -t, --time <string>           Fire search at HH:MM:SS (enables pre-warm mode)
+  -t, --time <string>           Fire search at HH:MM:SS without HTTP preflight
   -b, --book                    Continue to site Order Details and stop there
   --dryRun                      Open site details only; never continue to Order Details
   --headed                      Run with visible browser
   --bookingMode <single|multi>  Booking coordination mode [default: single]
   --maxHolds <number>           Max concurrent holds in multi mode [default: 1]
-  --accounts <csv>              Comma-separated list of account names for multi-session balancing (e.g., lisa,jason)
   --profileMode <mode>          persistent or ephemeral contexts [default: persistent]
   --profileDir <dir>            Directory for agent persistent profiles [default: profiles]
   --resetProfiles               Delete existing persistent profiles before starting
   --screenshotOnWin             Capture screenshot upon successful booking
   --sequential                  Book sites one at a time in a single browser
   --sites <csv>                 Target specific sites (e.g., BH03,BH07,BH09)
-  --snipe                       Direct URL sniping: bypass search, go straight to site URLs (requires --sites)
-  --warmup <minutes>            Minutes before --time to launch and pre-warm browsers [default: 5]
+  --accounts <csv>              Capture into multiple authenticated accounts
+  --launchMode <mode>           preload, refresh, or fresh-page [default: preload]
   -h, --help                    Show help
   `);
   process.exit(0);
 }
 
-let TARGET_DATE = values.date!;
+const TARGET_DATE = values.date!;
 const STAY_LENGTH = values.length!;
 const LOOP = values.loop!;
 const CONCURRENCY = parseInt(values.concurrency!, 10);
 const TARGET_TIME = values.time;
 const MONITOR_INTERVAL_MINS = values.monitorInterval ? parseInt(values.monitorInterval, 10) : null;
-
-if (TARGET_DATE.toLowerCase() === 'max') {
-  TARGET_DATE = getDynamicMaxDate();
-  console.log(`Dynamic date 'max' resolved to: ${TARGET_DATE}`);
-} else if (TARGET_DATE.toLowerCase() === 'random') {
-  TARGET_DATE = getDynamicRandomDate();
-  console.log(`Dynamic date 'random' resolved to: ${TARGET_DATE}`);
-}
-
 const AUTO_BOOK = values.book!;
 const DRY_RUN = values.dryRun!;
 const IS_HEADED = values.headed!;
@@ -121,58 +96,187 @@ const PROFILE_DIR = values.profileDir!;
 const RESET_PROFILES = values.resetProfiles!;
 const SCREENSHOT_ON_WIN = values.screenshotOnWin!;
 const SITE_ALLOWLIST: string[] = values.sites ? values.sites.split(',').map((s) => s.trim().toUpperCase()) : [];
-const SNIPE_MODE = values.snipe!;
-const WARMUP_MINUTES = parseInt(values.warmup!, 10);
-const ACCOUNTS_LIST: string[] = values.accounts ? values.accounts.split(',').map((s) => s.trim()) : [];
+const LAUNCH_MODE = parseLaunchMode(values.launchMode);
+const RUN_STARTED_AT = Date.now();
+const REQUESTED_ACCOUNTS = typeof values.accounts === 'string'
+  ? Array.from(new Set(
+      values.accounts
+        .split(',')
+        .map((account) => normalizeAccount(account))
+        .filter((account): account is string => Boolean(account)),
+    ))
+  : [];
 
 type HoldRecord = {
+  account: string;
   agentId: number;
   site: string;
   stage: SuccessStage;
   timestamp: string;
 };
 
-type RunState = {
-  bookingMode: 'single' | 'multi';
+type CaptureAccount = {
+  account: string | undefined;
+  displayName: string;
+  storageKey: string;
+};
+
+type AccountRunState = {
+  account: CaptureAccount;
   holds: HoldRecord[];
-  heldSites: Set<string>;
-  maxHolds: number;
   isClosed: boolean;
   winningAgentId: number | null;
+  maxHolds: number;
 };
 
-const runState: RunState = {
-  bookingMode: BOOKING_MODE,
-  holds: [],
-  heldSites: new Set(),
-  maxHolds: MAX_HOLDS,
-  isClosed: false,
-  winningAgentId: null,
+type AgentContextRecord = {
+  accountKey: string;
+  context: BrowserContext;
 };
 
-const activeContexts = new Map<number, BrowserContext>();
-const activeBrowsers: any[] = [];
+type AgentSpec = {
+  agentId: number;
+  account: CaptureAccount;
+  preferredSite: string | null;
+  localAgentIndex: number;
+};
 
-// Pre-warmed pages — created during warm-up, reused at fire time
-const warmedPages = new Map<number, Page>();
+const configuredAccounts: CaptureAccount[] = REQUESTED_ACCOUNTS.length > 0
+  ? REQUESTED_ACCOUNTS.map((account) => ({
+      account,
+      displayName: getAccountDisplayName(account),
+      storageKey: getAccountStorageKey(account),
+    }))
+  : [{
+      account: undefined,
+      displayName: getAccountDisplayName(undefined),
+      storageKey: getAccountStorageKey(undefined),
+    }];
 
-function isSiteAlreadyHeld(siteId: string): boolean {
-  return runState.heldSites.has(siteId);
+const globalHeldSites = new Set<string>();
+const accountRunStates = new Map<string, AccountRunState>(
+  configuredAccounts.map((account) => [
+    account.storageKey,
+    {
+      account,
+      holds: [],
+      isClosed: false,
+      winningAgentId: null,
+      maxHolds: BOOKING_MODE === 'multi' ? MAX_HOLDS : 1,
+    },
+  ]),
+);
+const activeContexts = new Map<number, AgentContextRecord>();
+const agentRunSummaries = new Map<number, AgentRunSummary>();
+const availabilityTelemetry: {
+  startedAt?: string;
+  finishedAt?: string;
+  matchedSites: string[];
+  allowlistApplied: boolean;
+} = {
+  matchedSites: [],
+  allowlistApplied: SITE_ALLOWLIST.length > 0,
+};
+const sessionPreflightTelemetry: Array<{
+  account: string;
+  result: string;
+  checkedAt: string;
+}> = [];
+let requestedSitesForRun: string[] = [];
+let readyAccountsForRun: CaptureAccount[] = [];
+let allocatedAgentCountForRun = 0;
+
+function buildCaptureResultArtifact(outcome: CaptureOutcome): CaptureResultArtifact {
+  return {
+    outcome,
+    accountsWithHolds: Array.from(accountRunStates.values())
+      .filter((state) => state.holds.length > 0 && state.account.account)
+      .map((state) => state.account.account!),
+    usedDefaultAccount: Array.from(accountRunStates.values()).some(
+      (state) => !state.account.account && state.holds.length > 0,
+    ),
+  };
 }
 
-function shouldStopAgent(agentId: number): boolean {
-  if (runState.isClosed) {
-    return runState.winningAgentId !== agentId;
+function writeCaptureResultArtifact(outcome: CaptureOutcome): void {
+  const artifactPath = process.env.CAPTURE_RESULT_PATH;
+  if (!artifactPath) {
+    return;
+  }
+
+  try {
+    fs.writeFileSync(artifactPath, JSON.stringify(buildCaptureResultArtifact(outcome), null, 2), 'utf-8');
+  } catch (error) {
+    console.error(`Failed to write capture result artifact: ${error}`);
+  }
+}
+
+function createAgentRunSummary(agentId: number, account: CaptureAccount, preferredSite: string | null): AgentRunSummary {
+  const summary: AgentRunSummary = {
+    account: account.displayName,
+    agentId,
+    preferredSite,
+    outcome: 'running',
+    startedAt: new Date().toISOString(),
+    finishedAt: undefined,
+    durationMs: undefined,
+    launch: null,
+    candidateSites: [],
+    attemptedSites: [],
+    heldSite: null,
+    error: undefined,
+    artifacts: {
+      successScreenshotPath: undefined,
+      failureScreenshotPaths: [],
+    },
+  };
+  agentRunSummaries.set(agentId, summary);
+  return summary;
+}
+
+function finishAgentRun(summary: AgentRunSummary, outcome: AgentRunSummary['outcome'], error?: string): void {
+  if (summary.finishedAt) {
+    return;
+  }
+
+  const finishedAt = Date.now();
+  summary.outcome = outcome;
+  summary.finishedAt = new Date(finishedAt).toISOString();
+  summary.durationMs = finishedAt - new Date(summary.startedAt).getTime();
+  if (error) {
+    summary.error = error;
+  }
+}
+
+function getAllHolds(): HoldRecord[] {
+  return Array.from(accountRunStates.values())
+    .flatMap((state) => state.holds)
+    .sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+}
+
+function isSiteAlreadyHeld(siteId: string): boolean {
+  return globalHeldSites.has(siteId);
+}
+
+function shouldStopAgent(agentId: number, accountKey: string): boolean {
+  const accountState = accountRunStates.get(accountKey);
+  if (!accountState) {
+    return false;
+  }
+  if (accountState.isClosed) {
+    return accountState.winningAgentId !== agentId;
   }
   return false;
 }
 
-function registerHold(agentId: number, siteId: string, stage: SuccessStage): boolean {
-  if (runState.isClosed) return false;
-  if (runState.heldSites.has(siteId)) return false;
+function registerHold(agentId: number, account: CaptureAccount, siteId: string, stage: SuccessStage): boolean {
+  const accountState = accountRunStates.get(account.storageKey);
+  if (!accountState || accountState.isClosed) return false;
+  if (globalHeldSites.has(siteId)) return false;
 
-  runState.heldSites.add(siteId);
-  runState.holds.push({
+  globalHeldSites.add(siteId);
+  accountState.holds.push({
+    account: account.displayName,
     agentId,
     site: siteId,
     stage,
@@ -183,46 +287,60 @@ function registerHold(agentId: number, siteId: string, stage: SuccessStage): boo
   return true;
 }
 
-async function claimSuccess(agentId: number, siteId: string, stage: SuccessStage): Promise<boolean> {
-  const registered = registerHold(agentId, siteId, stage);
-  if (!registered) return false;
-
-  if (runState.bookingMode === 'single') {
-    runState.isClosed = true;
-    runState.winningAgentId = agentId;
-    if (stage === 'order-details' && AUTO_BOOK && !DRY_RUN) await cancelRemainingAgents(agentId);
-    return true;
+async function claimSuccess(agentId: number, account: CaptureAccount, siteId: string, stage: SuccessStage): Promise<boolean> {
+  const accountState = accountRunStates.get(account.storageKey);
+  if (!accountState) {
+    return false;
   }
 
-  if (runState.holds.length >= runState.maxHolds) {
-    console.log(`Max holds reached. Closing agents.`);
-    runState.isClosed = true;
-    runState.winningAgentId = agentId;
-    await cancelRemainingAgents(agentId);
+  const registered = registerHold(agentId, account, siteId, stage);
+  if (!registered) return false;
+
+  if (accountState.holds.length >= accountState.maxHolds) {
+    console.log(`[${account.displayName}] Max holds reached. Closing agents for this account.`);
+    accountState.isClosed = true;
+    accountState.winningAgentId = agentId;
+    await cancelRemainingAgents(account.storageKey, agentId);
   }
   return true;
 }
 
-async function cancelRemainingAgents(excludeAgentId: number) {
-  for (const [agentId, context] of activeContexts.entries()) {
-    if (agentId !== excludeAgentId) await context.close().catch(() => { });
+async function cancelRemainingAgents(accountKey: string, excludeAgentId: number) {
+  for (const [agentId, record] of activeContexts.entries()) {
+    if (record.accountKey === accountKey && agentId !== excludeAgentId) {
+      await record.context.close().catch(() => {});
+    }
   }
 }
 
-async function cleanupResources(browsers: any[]) {
-  console.log('\nCleaning up resources...');
-  for (const [, context] of activeContexts.entries()) {
-    await context.close().catch(() => { });
-  }
-  for (const b of browsers) {
-    if (b) await b.close().catch(() => { });
-  }
-}
+function allocateAgents(accounts: CaptureAccount[], totalConcurrency: number, targetSites: string[]): AgentSpec[] {
+  const totalAgents = Math.max(totalConcurrency, accounts.length);
+  const localCounts = new Map<string, number>();
+  const specs: AgentSpec[] = [];
 
-// --- HTTP Availability Polling ---
+  for (let i = 0; i < totalAgents; i++) {
+    const account = accounts[i % accounts.length];
+    if (!account) {
+      continue;
+    }
+    const currentCount = localCounts.get(account.storageKey) ?? 0;
+    const localAgentIndex = currentCount + 1;
+    localCounts.set(account.storageKey, localAgentIndex);
+
+    specs.push({
+      agentId: i + 1,
+      account,
+      preferredSite: targetSites[i] ?? null,
+      localAgentIndex,
+    });
+  }
+
+  return specs;
+}
 
 async function waitForAvailability(): Promise<SiteAvailability[]> {
-  for (; ;) {
+  availabilityTelemetry.startedAt = new Date().toISOString();
+  for (;;) {
     const result = await searchAvailability({
       date: TARGET_DATE,
       length: STAY_LENGTH,
@@ -230,12 +348,15 @@ async function waitForAvailability(): Promise<SiteAvailability[]> {
     });
 
     if (result.exactDateMatches.length > 0) {
+      availabilityTelemetry.finishedAt = new Date().toISOString();
+      availabilityTelemetry.matchedSites = result.exactDateMatches.map((match) => match.site);
       return result.exactDateMatches;
     }
 
     const timestamp = new Date().toLocaleTimeString();
     if (!MONITOR_INTERVAL_MINS) {
       console.log(`[${timestamp}] No exact-date availability detected. Skipping browser launch.`);
+      availabilityTelemetry.finishedAt = new Date().toISOString();
       return [];
     }
 
@@ -246,446 +367,276 @@ async function waitForAvailability(): Promise<SiteAvailability[]> {
   }
 }
 
-// --- Agent Execution ---
-
-/**
- * Shared logic for securing a hold on a site.
- * Navigates from site details -> order details -> cart.
- */
-async function holdSite(agentId: number, page: Page, siteId: string): Promise<boolean> {
-  const label = `[Agent ${agentId}] `;
-  if (shouldStopAgent(agentId) || isSiteAlreadyHeld(siteId)) return false;
-
-  if (!AUTO_BOOK || DRY_RUN) {
-    await claimSuccess(agentId, siteId, 'site-details');
-    if (SCREENSHOT_ON_WIN) await page.screenshot({ path: `logs/agent-${agentId}-${siteId}-${Date.now()}.png` }).catch(() => { });
-    if (IS_HEADED) await page.waitForEvent('close').catch(() => { });
-    return true;
-  }
-
-  const secured = await executeBookingFlow(page, TARGET_DATE, STAY_LENGTH, label);
-  if (secured) {
-    await claimSuccess(agentId, siteId, 'order-details');
-    const screenshotPath = `logs/cart-agent-${agentId}-${siteId}-${Date.now()}.png`;
-    await page.screenshot({ path: screenshotPath }).catch(() => { });
-    console.log(`${label}✅ Final hold secured in Shopping Cart! Screenshot: ${screenshotPath}`);
-
-    if (IS_HEADED) await page.waitForEvent('close').catch(() => { });
-    return true;
-  } else {
-    const errorPath = `logs/fail-cart-agent-${agentId}-${siteId}-${Date.now()}.png`;
-    await page.screenshot({ path: errorPath }).catch(() => { });
-    console.log(`${label}Failed to secure hold in Shopping Cart. Screenshot: ${errorPath}`);
-  }
-  return false;
-}
-
-/**
- * Standard agent flow: submit pre-warmed search form, parse results, book.
- */
-async function runAgent(agentId: number, page: Page, preferredSite: string | null) {
+async function runAgent(spec: AgentSpec, context: BrowserContext) {
+  const { agentId, account, preferredSite, localAgentIndex } = spec;
+  activeContexts.set(agentId, { accountKey: account.storageKey, context });
+  let page = await context.newPage();
+  const agentSummary = createAgentRunSummary(agentId, account, preferredSite);
   try {
-    const label = `[Agent ${agentId}] `;
+    const label = `[${account.displayName}][Agent ${localAgentIndex}] `;
+    const launchResult = await executeLaunchStrategy({
+      context,
+      page,
+      loop: LOOP,
+      targetDate: TARGET_DATE,
+      stayLength: STAY_LENGTH,
+      targetTime: TARGET_TIME ?? undefined,
+      launchMode: LAUNCH_MODE,
+      agentLabel: label,
+    });
+    page = launchResult.page;
+    agentSummary.launch = launchResult.telemetry;
 
-    // Submit with retry loop
-    const gotResults = await submitWithRetry(page, label);
-    if (!gotResults) {
-      // Fallback: single submit + standard wait
-      await submitSearchForm(page);
-      await waitForSearchResults(page);
-    }
+    const candidates = await resolveTargetSites(page, TARGET_DATE, STAY_LENGTH);
+    agentSummary.candidateSites = candidates.map((candidate) => candidate.site);
+    if (preferredSite) candidates.sort((a) => (a.site === preferredSite ? -1 : 1));
 
-    let candidates = await resolveTargetSites(page, TARGET_DATE, STAY_LENGTH);
-    if (preferredSite) {
-      candidates.sort((a) => (a.site === preferredSite ? -1 : 1));
-    } else if (candidates.length > 1) {
-      // Offset agents so they don't all collide on the exact same first site
-      const startIndex = (agentId - 1) % candidates.length;
-      candidates = [...candidates.slice(startIndex), ...candidates.slice(0, startIndex)];
-    }
-
-    for (const selection of candidates) {
-      if (shouldStopAgent(agentId)) break;
-      if (isSiteAlreadyHeld(selection.site)) continue;
-
-      if (await openSiteDetails(page, selection)) {
-        if (await holdSite(agentId, page, selection.site)) return;
-      }
-    }
-  } catch (error) {
-    const msg = String(error);
-    if (!msg.includes('Target page, context or browser has been closed')) {
-      console.error(`[Agent ${agentId}] Error: ${error}`);
-    }
-  }
-}
-
-/**
- * Snipe agent flow: bypass search, go directly to site booking URL.
- */
-async function runSnipeAgent(agentId: number, page: Page, siteId: string) {
-  const label = `[Agent ${agentId}] `;
-  try {
-    const url = buildDirectSiteUrl(siteId, TARGET_DATE, STAY_LENGTH);
-    console.log(`${label}Sniping ${siteId} → ${url}`);
-
-    const loaded = await snipeDirectUrl(page, url, label);
-    if (loaded) {
-      await holdSite(agentId, page, siteId);
-    } else {
-      console.log(`${label}Failed to load site ${siteId} booking page.`);
-    }
-  } catch (error) {
-    const msg = String(error);
-    if (!msg.includes('Target page, context or browser has been closed')) {
-      console.error(`${label}Error: ${error}`);
-    }
-  }
-}
-
-function getAgentSessionFile(agentId: number): string {
-  if (ACCOUNTS_LIST.length === 0) return getSessionFile(undefined);
-  const index = (agentId - 1) % ACCOUNTS_LIST.length;
-  return getSessionFile(ACCOUNTS_LIST[index]);
-}
-
-function getAgentSessionPath(agentId: number): string {
-  if (ACCOUNTS_LIST.length === 0) return getSessionPath(undefined);
-  const index = (agentId - 1) % ACCOUNTS_LIST.length;
-  return getSessionPath(ACCOUNTS_LIST[index]);
-}
-
-async function createContextForAgent(agentId: number, browser: any | null): Promise<BrowserContext> {
-  const label = `[Agent ${agentId}] `;
-  const sessionFile = getAgentSessionFile(agentId);
-  const sessionPath = getAgentSessionPath(agentId);
-  const themeArgs = getThemeArgs(sessionFile);
-  const options: any = { headless: !IS_HEADED, timezoneId: 'America/Denver', args: themeArgs };
-
-  let context: BrowserContext;
-  if (PROFILE_MODE === 'persistent') {
-    const path = `${PROFILE_DIR}/agent-${agentId}`;
-    context = await chromium.launchPersistentContext(path, options);
-    if (fs.existsSync(sessionPath)) {
-      console.log(`${label}Refreshing session state using ${sessionFile}...`);
-      await injectSessionState(context, sessionPath);
-    }
-  } else {
-    if (fs.existsSync(sessionPath)) {
-      options.storageState = sessionPath;
-      console.log(`${label}Loaded session from ${sessionFile}`);
-    } else {
-      console.log(`${label}No existing session file found at ${sessionFile}`);
-    }
-    context = await browser.newContext(options);
-  }
-  return context;
-}
-
-// --- Pre-Warm / Fire Pipeline ---
-
-/**
- * Phase 1: Launch browsers, inject sessions, navigate to park page,
- * fill search forms. Returns pre-warmed pages ready to fire.
- */
-async function warmUpAgents(targetSites: string[]): Promise<void> {
-  if (PROFILE_MODE === 'persistent' && !fs.existsSync(PROFILE_DIR)) {
-    fs.mkdirSync(PROFILE_DIR, { recursive: true });
-  }
-
-  let sharedBrowser: any = null;
-  if (PROFILE_MODE !== 'persistent') {
-    sharedBrowser = await chromium.launch({ headless: !IS_HEADED });
-    activeBrowsers.push(sharedBrowser);
-  }
-
-  for (let i = 0; i < CONCURRENCY; i++) {
-    const agentId = i + 1;
-    const label = `[Agent ${agentId}] `;
-
-    const sessionFile = getAgentSessionFile(agentId);
-    const accountName = ACCOUNTS_LIST[(agentId - 1) % ACCOUNTS_LIST.length];
-    const { isExpired, earliestExpiry } = getSessionExpiryInfo(accountName);
-
-    if (isExpired) {
-      console.error(`${label}⚠️  WARNING: Local session file is expired or missing. Attempting auto-login...`);
-      try {
-        await performAutoLogin(accountName ? [accountName] : []);
-      } catch (e: any) {
-        console.error(`${label}❌ Auto-login failed: ${e.message}`);
-        process.exit(1);
-      }
-    } else if (earliestExpiry) {
-      console.log(`${label}Session valid until: ${earliestExpiry.toLocaleString()}`);
-    }
-
-    const context = await createContextForAgent(agentId, sharedBrowser);
-
-    activeContexts.set(agentId, context);
-
-    const page = await context.newPage();
-    warmedPages.set(agentId, page);
-
-    await page.goto(PARK_URL, { waitUntil: 'domcontentloaded' });
-    let loggedIn = await ensureLoggedIn(page, label);
-    if (!loggedIn) {
-      console.error(`\n⚠️  WARNING: Server rejected session for Agent ${agentId}. Attempting auto-login...\n`);
-      try {
-        await performAutoLogin(accountName ? [accountName] : []);
-        // Re-inject the fresh session into the existing context
-        await injectSessionState(context, getAgentSessionPath(agentId));
-        await page.goto(PARK_URL, { waitUntil: 'domcontentloaded' });
-        loggedIn = await ensureLoggedIn(page, label);
-        if (!loggedIn) throw new Error('Auto-login succeeded but session still invalid.');
-      } catch (e: any) {
-        console.error(`\n❌ CRITICAL ERROR: Auto-login failed for Agent ${agentId}: ${e.message}\n`);
-        process.exit(1);
-      }
-    }
-
-    // Start background heartbeat to keep JSESSIONID alive until fire time
-    await startHeartbeat(page, label);
-
-    if (!SNIPE_MODE) {
-      await primeSearchForm(page, LOOP, TARGET_DATE, STAY_LENGTH, label);
-      console.log(`${label}✅ Pre-warmed and ready. Form filled.`);
-    } else {
-      console.log(`${label}✅ Pre-warmed. Will snipe ${targetSites[i] ?? 'first available'} at fire time.`);
-    }
-  }
-}
-
-/**
- * Phase 2: Fire all agents simultaneously.
- * Called at --time after pre-warm is complete.
- */
-async function fireAgents(targetSites: string[]): Promise<void> {
-  console.log(`\n🔥 FIRING ${CONCURRENCY} agents! (${new Date().toISOString()})\n`);
-
-  // Pre-warm connections 10s before fire (already at fire time if no --time)
-  const preWarmPromises: Promise<void>[] = [];
-  for (const [agentId, page] of warmedPages.entries()) {
-    preWarmPromises.push(preWarmConnections(page, `[Agent ${agentId}] `));
-  }
-  await Promise.all(preWarmPromises);
-
-  const promises: Promise<void>[] = [];
-  for (let i = 0; i < CONCURRENCY; i++) {
-    const agentId = i + 1;
-    const page = warmedPages.get(agentId);
-    if (!page) continue;
-
-    if (SNIPE_MODE) {
-      const siteId = targetSites[i];
-      if (!siteId) {
-        console.log(`[Agent ${agentId}] No site assigned for sniping — skipping.`);
-        continue;
-      }
-      // Stagger by 50ms to avoid exact-same-millisecond collision
-      promises.push(sleep(i * 50).then(() => runSnipeAgent(agentId, page, siteId)));
-    } else {
-      // Standard mode: submit the pre-filled form
-      promises.push(sleep(i * 50).then(() => runAgent(agentId, page, targetSites[i] ?? null)));
-    }
-  }
-
-  await Promise.all(promises);
-
-  await cleanupResources(activeBrowsers);
-
-  writeRunSummary({
-    timestamp: new Date().toISOString(),
-    targetDate: TARGET_DATE,
-    loop: LOOP,
-    agentCount: CONCURRENCY,
-    bookingMode: BOOKING_MODE,
-    maxHolds: MAX_HOLDS,
-    holds: runState.holds,
-    winningAgent: runState.winningAgentId,
-    winningSite: runState.holds[0]?.site ?? null,
-    status: runState.holds.length > 0 ? 'success' : 'failure',
-  });
-}
-
-// --- Legacy Launch (non-timed mode) ---
-
-async function launchCapture(targetSites: string[]) {
-  if (PROFILE_MODE === 'persistent' && !fs.existsSync(PROFILE_DIR)) {
-    fs.mkdirSync(PROFILE_DIR, { recursive: true });
-  }
-
-  let sharedBrowser: any = null;
-  if (PROFILE_MODE !== 'persistent') {
-    sharedBrowser = await chromium.launch({ headless: !IS_HEADED });
-    activeBrowsers.push(sharedBrowser);
-  }
-
-  const promises: Promise<void>[] = [];
-  for (let i = 0; i < CONCURRENCY; i++) {
-    const agentId = i + 1;
-    const agent = async () => {
-      const label = `[Agent ${agentId}] `;
-      const context = await createContextForAgent(agentId, sharedBrowser);
-      activeContexts.set(agentId, context);
-      const page = await context.newPage();
-
-      const sessionFile = getAgentSessionFile(agentId);
-      const accountName = ACCOUNTS_LIST[(agentId - 1) % ACCOUNTS_LIST.length];
-
-      try {
-        await page.goto(PARK_URL, { waitUntil: 'domcontentloaded' });
-        let loggedIn = await ensureLoggedIn(page, label);
-        if (!loggedIn) {
-          console.error(`\n⚠️  WARNING: Server rejected session for Agent ${agentId}. Attempting auto-login...\n`);
-          try {
-            await performAutoLogin(accountName ? [accountName] : []);
-            // Re-inject the fresh session into the existing context
-            await injectSessionState(context, getAgentSessionPath(agentId));
-            await page.goto(PARK_URL, { waitUntil: 'domcontentloaded' });
-            loggedIn = await ensureLoggedIn(page, label);
-            if (!loggedIn) throw new Error('Auto-login succeeded but session still invalid.');
-          } catch (e: any) {
-            console.error(`\n❌ CRITICAL ERROR: Auto-login failed for Agent ${agentId}: ${e.message}\n`);
-            process.exit(1);
-          }
-        }
-        await primeSearchForm(page, LOOP, TARGET_DATE, STAY_LENGTH, label);
-        await runAgent(agentId, page, targetSites[i] ?? null);
-      } finally {
-        await context.close().catch(() => { });
-      }
-    };
-
-    promises.push(sleep(i * 300).then(agent));
-  }
-
-  await Promise.all(promises);
-  await cleanupResources(activeBrowsers);
-
-  writeRunSummary({
-    timestamp: new Date().toISOString(),
-    targetDate: TARGET_DATE,
-    loop: LOOP,
-    agentCount: CONCURRENCY,
-    bookingMode: BOOKING_MODE,
-    maxHolds: MAX_HOLDS,
-    holds: runState.holds,
-    winningAgent: runState.winningAgentId,
-    winningSite: runState.holds[0]?.site ?? null,
-    status: runState.holds.length > 0 ? 'success' : 'failure',
-  });
-}
-
-// --- Entry Point ---
-
-async function validateAllSessionsUpfront() {
-  console.log('\n[Init] Validating session state for all accounts before starting...');
-  const accountsToCheck = ACCOUNTS_LIST.length > 0 ? ACCOUNTS_LIST : [undefined];
-  const accountsToLogin: string[] = [];
-
-  for (const account of accountsToCheck) {
-    const { isExpired } = getSessionExpiryInfo(account);
-    if (isExpired) {
-      accountsToLogin.push(account || 'default');
-    }
-  }
-
-  if (accountsToLogin.length > 0) {
-    console.log(`[Init] Sessions expired or missing for: ${accountsToLogin.join(', ')}. Launching Auth fallback...`);
-    try {
-      await performAutoLogin(accountsToLogin);
-    } catch (e: any) {
-      console.error(`\n❌ CRITICAL ERROR: Initial authentication failed: ${e.message}\n`);
-      process.exit(1);
-    }
-  } else {
-    console.log('[Init] ✅ All required sessions are currently valid.');
-  }
-}
-
-async function startRace() {
-  console.log('--- Bear Lake Sniper Mode ---');
-  if (!TARGET_DATE) throw new Error("Target date is required.");
-  assertBookingWindow(TARGET_DATE);
-  // --- FLOWCHART: Ensure Valid Session ---
-  await validateAllSessionsUpfront();
-
-  // --- SAFETY WARNINGS ---
-  if (!AUTO_BOOK && !DRY_RUN) {
-    console.log('\x1b[43m\x1b[30m ⚠️  WARNING: DRY RUN MODE. Sites will NOT be added to your cart. \x1b[0m');
-    console.log(' You forgot the -b (--book) flag. The script will stop at the Site Details page.\n');
-  } else if (DRY_RUN) {
-    console.log('\x1b[43m\x1b[30m ⚠️  WARNING: DRY RUN MODE. Sites will NOT be added to your cart. \x1b[0m');
-    console.log(' --dryRun is enabled. The script will stop at the Site Details page.\n');
-  } else {
-    console.log('\x1b[42m\x1b[30m 🏁 AUTO-BOOK ACTIVE. Agents will attempt to add sites to your cart. \x1b[0m\n');
-  }
-
-  if (!IS_HEADED) {
-    console.log('\x1b[41m\x1b[37m 🚨 DANGER: HEADLESS MODE ACTIVE \x1b[0m');
-    console.log('\x1b[31m You forgot the --headed flag. If ReserveAmerica triggers a Captcha, the agents will silently hang and fail.\x1b[0m\n');
-  }
-  // -----------------------
-
-  if (TARGET_TIME) {
-    // === PRE-WARM PIPELINE ===
-    const msUntilFire = msUntilTargetTime(TARGET_TIME);
-    const warmupMs = WARMUP_MINUTES * 60_000;
-
-    if (msUntilFire <= 0) {
-      console.log(`Target time ${TARGET_TIME} has already passed. Launching immediately.`);
-      await warmUpAgents(SITE_ALLOWLIST);
-      await fireAgents(SITE_ALLOWLIST);
+    if (candidates.length === 0) {
+      finishAgentRun(agentSummary, 'no-candidates');
       return;
     }
 
-    // Wait until warmup window opens
-    const waitBeforeWarmup = msUntilFire - warmupMs;
-    if (waitBeforeWarmup > 0) {
-      console.log(`Waiting ${Math.round(waitBeforeWarmup / 1000)}s until warm-up window opens...`);
-      await sleep(waitBeforeWarmup);
-    }
+    for (const selection of candidates) {
+      if (shouldStopAgent(agentId, account.storageKey)) {
+        finishAgentRun(agentSummary, 'stopped');
+        break;
+      }
+      if (isSiteAlreadyHeld(selection.site)) continue;
+      agentSummary.attemptedSites.push(selection.site);
 
-    console.log(`\n🔧 WARM-UP PHASE: Launching ${CONCURRENCY} agents...`);
-    await warmUpAgents(SITE_ALLOWLIST);
+      if (await openSiteDetails(page, selection)) {
+        if (isSiteAlreadyHeld(selection.site)) continue;
 
-    // Countdown with logging
-    const remaining = msUntilTargetTime(TARGET_TIME);
-    if (remaining > 10_000) {
-      console.log(`\n⏳ All agents pre-warmed. Waiting ${Math.round(remaining / 1000)}s until fire time (${TARGET_TIME})...`);
-    }
+        if (!AUTO_BOOK || DRY_RUN) {
+          await claimSuccess(agentId, account, selection.site, 'site-details');
+          agentSummary.heldSite = selection.site;
+          finishAgentRun(agentSummary, 'site-details-held');
+          if (SCREENSHOT_ON_WIN) {
+            const screenshotPath = `logs/agent-${agentId}-win-${Date.now()}.png`;
+            await page.screenshot({ path: screenshotPath }).catch(() => {});
+            agentSummary.artifacts.successScreenshotPath = screenshotPath;
+          }
+          if (IS_HEADED) await page.waitForEvent('close').catch(() => {});
+          return;
+        }
 
-    // Pre-warm connections at T-10s
-    const preWarmDelay = remaining - 10_000;
-    if (preWarmDelay > 0) {
-      await sleep(preWarmDelay);
-      console.log(`\n🌐 T-10s: Pre-warming connections...`);
-      for (const [agentId, page] of warmedPages.entries()) {
-        await preWarmConnections(page, `[Agent ${agentId}] `);
+        if (await continueToOrderDetails(page, TARGET_DATE, STAY_LENGTH)) {
+          console.log(`${label}Reached Order Details for ${selection.site}. Finalizing hold...`);
+
+          if (await addToCart(page, label)) {
+            await claimSuccess(agentId, account, selection.site, 'order-details');
+            const screenshotPath = `logs/cart-agent-${agentId}-${selection.site}-${Date.now()}.png`;
+            await page.screenshot({ path: screenshotPath }).catch(() => {});
+            console.log(`${label}✅ Final hold secured in Shopping Cart! Screenshot: ${screenshotPath}`);
+            agentSummary.heldSite = selection.site;
+            agentSummary.artifacts.successScreenshotPath = screenshotPath;
+            finishAgentRun(agentSummary, 'order-details-held');
+
+            if (IS_HEADED) await page.waitForEvent('close').catch(() => {});
+            return;
+          } else {
+            const errorPath = `logs/fail-cart-agent-${agentId}-${selection.site}-${Date.now()}.png`;
+            await page.screenshot({ path: errorPath }).catch(() => {});
+            console.log(`${label}Failed to move to Shopping Cart. Screenshot: ${errorPath}`);
+            agentSummary.artifacts.failureScreenshotPaths.push(errorPath);
+            agentSummary.outcome = 'cart-failed';
+          }
+        }
       }
     }
-
-    // High-res wait for exact fire time
-    await waitForTargetTime(TARGET_TIME);
-    await fireAgents(SITE_ALLOWLIST);
-    return;
-  }
-
-  // === HYBRID MODE (HTTP monitor → browser launch) ===
-  const result = await waitForAvailability();
-  if (result.length > 0) {
-    let targetSites = result.map((s) => s.site);
-    if (SITE_ALLOWLIST.length > 0) {
-      targetSites = targetSites.filter((s) => SITE_ALLOWLIST.includes(s.toUpperCase()));
-      if (targetSites.length === 0) {
-        console.log('No available sites match your --sites allowlist.');
-        process.exit(2);
-      }
+    if (!agentSummary.finishedAt) {
+      finishAgentRun(agentSummary, 'exhausted');
     }
-    await launchCapture(targetSites);
-  } else {
-    process.exit(2); // Exit with a specific code so the CLI wrapper knows no sites were targeted
+  } catch (error) {
+    console.error(`[Agent ${agentId}] Error: ${error}`);
+    finishAgentRun(agentSummary, 'error', error instanceof Error ? error.message : String(error));
+  } finally {
+    activeContexts.delete(agentId);
+    await context.close().catch(() => {});
   }
 }
+async function launchCapture(targetSites: string[]): Promise<CaptureOutcome> {
+  // 1. Ensure we have a valid session before starting any agents
+  readyAccountsForRun = [];
+  for (const account of configuredAccounts) {
+    const sessionResult = await ensureActiveSession(account.account, {
+      logPrefix: `[Pre-Flight][${account.displayName}] `,
+    });
+    sessionPreflightTelemetry.push({
+      account: account.displayName,
+      result: sessionResult,
+      checkedAt: new Date().toISOString(),
+    });
+    if (sessionResult !== 'failed') {
+      readyAccountsForRun.push(account);
+    }
+  }
 
-startRace().catch(console.error);
+  if (readyAccountsForRun.length === 0) {
+    console.error('Pre-flight validation failed. Cannot proceed with capture.');
+    return 'auth-failed';
+  }
+
+  if (PROFILE_MODE === 'persistent' && !fs.existsSync(PROFILE_DIR)) {
+    fs.mkdirSync(PROFILE_DIR, { recursive: true });
+  }
+
+  let browser: any = null;
+  if (PROFILE_MODE !== 'persistent') {
+    browser = await chromium.launch({ headless: !IS_HEADED });
+  }
+
+  const agentSpecs = allocateAgents(readyAccountsForRun, CONCURRENCY, targetSites);
+  allocatedAgentCountForRun = agentSpecs.length;
+  const promises: Promise<void>[] = [];
+  for (const [i, spec] of agentSpecs.entries()) {
+    const { agentId, account, localAgentIndex } = spec;
+    let context: BrowserContext;
+    const sessionPath = getReadableSessionPath(account.account);
+    const hasSession = sessionExists(account.account);
+
+    if (PROFILE_MODE === 'persistent') {
+      const path = `${PROFILE_DIR}/${account.storageKey}/agent-${localAgentIndex}`;
+      const options = { headless: !IS_HEADED, timezoneId: 'America/Denver' };
+      context = await chromium.launchPersistentContext(path, options);
+      if (hasSession) {
+        console.log(`[${account.displayName}][Agent ${localAgentIndex}] Refreshing session state...`);
+        await injectSession(context, account.account);
+      }
+    } else {
+      context = await browser!.newContext({
+        storageState: hasSession ? sessionPath : undefined,
+        timezoneId: 'America/Denver',
+      });
+    }
+    promises.push(sleep(i * 300).then(() => runAgent(spec, context)));
+  }
+
+  await Promise.all(promises);
+  if (browser) await browser.close();
+  return getAllHolds().length > 0 ? 'success' : 'no-availability';
+}
+
+async function startRace(): Promise<CaptureOutcome> {
+  console.log('--- Bear Lake Sniper Mode ---');
+  requestedSitesForRun = [];
+  if (TARGET_TIME) {
+    return launchCapture([]);
+  }
+
+  const result = await waitForAvailability();
+  if (result.length === 0) {
+    return 'no-availability';
+  }
+
+  let targetSites = result.map((s) => s.site);
+  if (SITE_ALLOWLIST.length > 0) {
+    targetSites = targetSites.filter((s) => SITE_ALLOWLIST.includes(s.toUpperCase()));
+    if (targetSites.length === 0) {
+      console.log('No available sites match your --sites allowlist.');
+      return 'no-availability';
+    }
+  }
+  requestedSitesForRun = targetSites;
+  return launchCapture(targetSites);
+}
+
+startRace()
+  .then((outcome) => {
+    const runFinishedAt = Date.now();
+    const holds = getAllHolds();
+    const winningHold = holds[0] ?? null;
+    writeRunSummary({
+      timestamp: new Date(runFinishedAt).toISOString(),
+      runStartedAt: new Date(RUN_STARTED_AT).toISOString(),
+      runFinishedAt: new Date(runFinishedAt).toISOString(),
+      durationMs: runFinishedAt - RUN_STARTED_AT,
+      targetDate: TARGET_DATE,
+      loop: LOOP,
+      targetTime: TARGET_TIME ?? undefined,
+      monitorIntervalMins: MONITOR_INTERVAL_MINS,
+      launchMode: LAUNCH_MODE,
+      autoBook: AUTO_BOOK,
+      dryRun: DRY_RUN,
+      headed: IS_HEADED,
+      profileMode: PROFILE_MODE,
+      accountsConfigured: configuredAccounts.map((account) => account.displayName),
+      accountsReady: readyAccountsForRun.map((account) => account.displayName),
+      accountsWithHolds: Array.from(accountRunStates.values())
+        .filter((state) => state.holds.length > 0)
+        .map((state) => state.account.displayName),
+      agentCount: allocatedAgentCountForRun,
+      bookingMode: BOOKING_MODE,
+      maxHolds: MAX_HOLDS,
+      requestedSites: requestedSitesForRun,
+      availableSites: availabilityTelemetry.matchedSites,
+      holds,
+      winningAgent: winningHold?.agentId ?? null,
+      winningSite: winningHold?.site ?? null,
+      status: outcome === 'success' ? 'success' : outcome,
+      sessionPreflight: sessionPreflightTelemetry,
+      availabilityCheck: availabilityTelemetry.startedAt && availabilityTelemetry.finishedAt
+        ? {
+            startedAt: availabilityTelemetry.startedAt,
+            finishedAt: availabilityTelemetry.finishedAt,
+            matchedSites: availabilityTelemetry.matchedSites,
+            allowlistApplied: availabilityTelemetry.allowlistApplied,
+          }
+        : undefined,
+      agents: Array.from(agentRunSummaries.values()).sort((a, b) => a.agentId - b.agentId),
+    });
+    writeCaptureResultArtifact(outcome);
+    process.exitCode = captureOutcomeToExitCode(outcome);
+    if (outcome === 'no-availability') {
+      console.log('Capture ended without any qualifying holds.');
+    } else if (outcome === 'auth-failed') {
+      console.error('Capture stopped because session validation/manual login did not complete.');
+    }
+  })
+  .catch((error) => {
+    console.error(error);
+    const runFinishedAt = Date.now();
+    const holds = getAllHolds();
+    const winningHold = holds[0] ?? null;
+    writeRunSummary({
+      timestamp: new Date(runFinishedAt).toISOString(),
+      runStartedAt: new Date(RUN_STARTED_AT).toISOString(),
+      runFinishedAt: new Date(runFinishedAt).toISOString(),
+      durationMs: runFinishedAt - RUN_STARTED_AT,
+      targetDate: TARGET_DATE,
+      loop: LOOP,
+      targetTime: TARGET_TIME ?? undefined,
+      monitorIntervalMins: MONITOR_INTERVAL_MINS,
+      launchMode: LAUNCH_MODE,
+      autoBook: AUTO_BOOK,
+      dryRun: DRY_RUN,
+      headed: IS_HEADED,
+      profileMode: PROFILE_MODE,
+      accountsConfigured: configuredAccounts.map((account) => account.displayName),
+      accountsReady: readyAccountsForRun.map((account) => account.displayName),
+      accountsWithHolds: Array.from(accountRunStates.values())
+        .filter((state) => state.holds.length > 0)
+        .map((state) => state.account.displayName),
+      agentCount: allocatedAgentCountForRun,
+      bookingMode: BOOKING_MODE,
+      maxHolds: MAX_HOLDS,
+      requestedSites: requestedSitesForRun,
+      availableSites: availabilityTelemetry.matchedSites,
+      holds,
+      winningAgent: winningHold?.agentId ?? null,
+      winningSite: winningHold?.site ?? null,
+      status: 'error',
+      sessionPreflight: sessionPreflightTelemetry,
+      availabilityCheck: availabilityTelemetry.startedAt && availabilityTelemetry.finishedAt
+        ? {
+            startedAt: availabilityTelemetry.startedAt,
+            finishedAt: availabilityTelemetry.finishedAt,
+            matchedSites: availabilityTelemetry.matchedSites,
+            allowlistApplied: availabilityTelemetry.allowlistApplied,
+          }
+        : undefined,
+      agents: Array.from(agentRunSummaries.values()).sort((a, b) => a.agentId - b.agentId),
+    });
+    writeCaptureResultArtifact('error');
+    process.exitCode = CAPTURE_EXIT_CODES.error;
+  });

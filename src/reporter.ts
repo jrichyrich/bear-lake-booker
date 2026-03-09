@@ -1,40 +1,114 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-interface HoldRecord {
-    agentId: number;
-    site: string;
-    stage: string;
-    timestamp: string;
+export interface HoldRecord {
+  account: string;
+  agentId: number;
+  site: string;
+  stage: string;
+  timestamp: string;
 }
 
-interface RunSummary {
-    timestamp: string;
-    targetDate: string;
-    loop: string;
-    agentCount: number;
-    bookingMode: 'single' | 'multi';
-    maxHolds: number;
-    holds: HoldRecord[];
-    winningAgent: number | null;
-    winningSite: string | null;
-    status: 'success' | 'failure';
+export interface AgentLaunchTelemetry {
+  mode: string;
+  startedAt: string;
+  warmupStartedAt: string;
+  warmupCompletedAt: string | undefined;
+  waitStartedAt: string | undefined;
+  targetTimeReachedAt: string | undefined;
+  refreshStartedAt: string | undefined;
+  freshPageOpenedAt: string | undefined;
+  submitStartedAt: string;
+  resultsVisibleAt: string;
+  durationsMs: {
+    warmup: number | undefined;
+    waitForTarget: number | undefined;
+    submitToResults: number;
+    totalLaunch: number;
+  };
+}
+
+export interface AgentRunSummary {
+  account: string;
+  agentId: number;
+  preferredSite: string | null;
+  outcome:
+    | 'order-details-held'
+    | 'site-details-held'
+    | 'cart-failed'
+    | 'no-candidates'
+    | 'stopped'
+    | 'exhausted'
+    | 'error'
+    | 'running';
+  startedAt: string;
+  finishedAt: string | undefined;
+  durationMs: number | undefined;
+  launch: AgentLaunchTelemetry | null;
+  candidateSites: string[];
+  attemptedSites: string[];
+  heldSite: string | null;
+  error: string | undefined;
+  artifacts: {
+    successScreenshotPath: string | undefined;
+    failureScreenshotPaths: string[];
+  };
+}
+
+export interface RunSummary {
+  timestamp: string;
+  runStartedAt: string;
+  runFinishedAt: string;
+  durationMs: number;
+  targetDate: string;
+  loop: string;
+  targetTime: string | undefined;
+  monitorIntervalMins: number | null;
+  launchMode: string;
+  autoBook: boolean;
+  dryRun: boolean;
+  headed: boolean;
+  profileMode: string;
+  accountsConfigured: string[];
+  accountsReady: string[];
+  accountsWithHolds: string[];
+  agentCount: number;
+  bookingMode: 'single' | 'multi';
+  maxHolds: number;
+  requestedSites: string[];
+  availableSites: string[];
+  holds: HoldRecord[];
+  winningAgent: number | null;
+  winningSite: string | null;
+  status: 'success' | 'failure' | 'no-availability' | 'auth-failed' | 'error';
+  sessionPreflight: Array<{
+    account: string;
+    result: string;
+    checkedAt: string;
+  }>;
+  availabilityCheck: {
+    startedAt: string;
+    finishedAt: string;
+    matchedSites: string[];
+    allowlistApplied: boolean;
+  } | undefined;
+  agents: AgentRunSummary[];
 }
 
 export function writeRunSummary(summary: RunSummary) {
-    const logsDir = path.resolve(process.cwd(), 'logs');
-    if (!fs.existsSync(logsDir)) {
-        fs.mkdirSync(logsDir, { recursive: true });
-    }
+  const logsDir = path.resolve(process.cwd(), 'logs');
+  if (!fs.existsSync(logsDir)) {
+    fs.mkdirSync(logsDir, { recursive: true });
+  }
 
-    const timestampStr = new Date().toISOString().replace(/[:.]/g, '-');
-    const filename = `summary-${timestampStr}.json`;
-    const filepath = path.join(logsDir, filename);
+  const timestampStr = new Date().toISOString().replace(/[:.]/g, '-');
+  const filename = `summary-${timestampStr}.json`;
+  const filepath = path.join(logsDir, filename);
 
-    try {
-        fs.writeFileSync(filepath, JSON.stringify(summary, null, 2), 'utf-8');
-        console.log(`\nRun summary written to ${filepath}`);
-    } catch (error) {
-        console.error(`Failed to write run summary: ${error}`);
-    }
+  try {
+    fs.writeFileSync(filepath, JSON.stringify(summary, null, 2), 'utf-8');
+    console.log(`\nRun summary written to ${filepath}`);
+  } catch (error) {
+    console.error(`Failed to write run summary: ${error}`);
+  }
 }

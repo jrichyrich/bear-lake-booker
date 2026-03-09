@@ -5,8 +5,8 @@ chromium.use(StealthPlugin());
 
 import { parseArgs } from 'util';
 import { getThemeArgs } from './theme';
-import { getSessionPath, validateSessionActive, sessionExists } from './session-utils';
-import { PARK_URL } from './config';
+import { getReadableSessionPath, normalizeAccount, validateSessionActive, sessionExists } from './session-utils';
+import { ensureActiveSession } from './session-manager';
 
 const CART_URL = 'https://utahstateparks.reserveamerica.com/viewShoppingCart.do';
 
@@ -34,15 +34,17 @@ Options:
 /**
  * Opens a single account's shopping cart in a themed browser window.
  */
-async function openAccountCart(accountName: string) {
-  const sessionPath = getSessionPath(accountName.includes('@') ? accountName : `${accountName}@gmail.com`);
+async function openAccountCart(accountName?: string) {
+  const normalizedAccount = normalizeAccount(accountName);
+  const displayName = normalizedAccount ?? 'default';
+  const sessionPath = getReadableSessionPath(normalizedAccount);
 
-  if (!sessionExists(accountName.includes('@') ? accountName : `${accountName}@gmail.com`)) {
-    console.error(`❌ No session file found for ${accountName} at ${sessionPath}`);
+  if (!sessionExists(normalizedAccount)) {
+    console.error(`❌ No session file found for ${displayName} at ${sessionPath}`);
     return;
   }
 
-  const themeArgs = getThemeArgs(accountName);
+  const themeArgs = getThemeArgs(normalizedAccount);
   const browser = await chromium.launch({ headless: false, args: themeArgs });
   const context = await browser.newContext({
     storageState: sessionPath,
@@ -50,21 +52,21 @@ async function openAccountCart(accountName: string) {
   });
 
   const page = await context.newPage();
-  console.log(`[${accountName}] Verifying session...`);
+  console.log(`[${displayName}] Verifying session...`);
 
   if (await validateSessionActive(page)) {
-    console.log(`[${accountName}] ✅ Session verified as ACTIVE. Loading Shopping Cart...`);
+    console.log(`[${displayName}] ✅ Session verified as ACTIVE. Loading Shopping Cart...`);
     await page.goto(CART_URL);
   } else {
-    console.error(`[${accountName}] ⚠️ Session expired! Attempting auto-login...`);
+    console.error(`[${displayName}] ⚠️ Session expired! Manual login may be required.`);
     await browser.close().catch(() => { });
 
-    try {
-      // Import dynamically to avoid circular dependencies if any
-      const { performAutoLogin } = require('./auth');
-      await performAutoLogin([accountName]);
+    const sessionResult = await ensureActiveSession(normalizedAccount, {
+      logPrefix: `[${displayName}] `,
+    });
 
-      console.log(`[${accountName}] ✅ Auto-login successful. Reopening Shopping Cart...`);
+    if (sessionResult !== 'failed') {
+      console.log(`[${displayName}] ✅ Session renewed. Reopening Shopping Cart...`);
       // Re-launch with the fresh session
       const newBrowser = await chromium.launch({ headless: false, args: themeArgs });
       const newContext = await newBrowser.newContext({
@@ -78,8 +80,8 @@ async function openAccountCart(accountName: string) {
       await newPage.waitForEvent('close', { timeout: 0 }).catch(() => { });
       await newBrowser.close().catch(() => { });
       return; // Exit here since we launched a new browser life-cycle
-    } catch (e: any) {
-      console.error(`[${accountName}] ❌ Auto-login failed: ${e.message}\nPlease run "npm run auth -u ${accountName}" manually.`);
+    } else {
+      console.error(`[${displayName}] ❌ Session renewal failed.\nPlease run "npm run auth -u ${displayName}" manually.`);
       return;
     }
   }
@@ -98,7 +100,7 @@ async function main() {
 
   if (accountList[0] === undefined) {
     console.log('Opening default shopping cart...');
-    await openAccountCart('default');
+    await openAccountCart();
   } else {
     console.log(`Opening carts for: ${accountList.join(', ')}...`);
     await Promise.all(accountList.map(acc => openAccountCart(acc!)));

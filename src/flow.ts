@@ -1,5 +1,8 @@
 import { spawnSync } from 'child_process';
+import * as fs from 'fs';
+import * as path from 'path';
 import { parseArgs } from 'util';
+import { CAPTURE_EXIT_CODES, type CaptureResultArtifact, captureExitCodeToOutcome } from './flow-contract';
 
 const args = process.argv.slice(2);
 
@@ -11,6 +14,7 @@ console.log('');
 // Parse the --accounts argument to pass to view-cart later
 let accountsArg = '';
 let isDryRun = false;
+const raceArgs: string[] = [];
 try {
     const { values } = parseArgs({
         args,
@@ -28,7 +32,7 @@ Usage:
   npm run flow -- [options]
 
 This wrapper executes the full booking flow mapping to your flowchart:
-1. Ensure Valid Session (via race.ts headless auto-login)
+1. Ensure Valid Session (manual login if captcha/session refresh is required)
 2. Proceed to warm up
 3. Launch at launch time
 4. Book Spots -> Save to Cart -> Close Windows
@@ -48,22 +52,44 @@ Example:
     if (values.dryRun) {
         isDryRun = true;
     }
+
+    raceArgs.push(...args);
 } catch (e) {
     // Ignore parse errors here, let race.ts handle strict validation
+    raceArgs.push(...args);
 }
 
 // Step 1 - 6: Race (Validates sessions, warms up, books, closes windows)
 console.log('▶️  STEP 1: Initiating Capture Phase (race.ts)');
 console.log('   (Handles Auth validation, warm-up, and booking)\\n');
 
-const raceResult = spawnSync('npx', ['tsx', 'src/race.ts', ...args], { stdio: 'inherit' });
+const logsDir = path.resolve(process.cwd(), 'logs');
+if (!fs.existsSync(logsDir)) {
+    fs.mkdirSync(logsDir, { recursive: true });
+}
+const captureResultPath = path.join(logsDir, `capture-result-${Date.now()}.json`);
 
-if (raceResult.status === 2) {
+const raceResult = spawnSync('npx', ['tsx', 'src/race.ts', ...raceArgs], {
+    stdio: 'inherit',
+    env: { ...process.env, CAPTURE_RESULT_PATH: captureResultPath },
+});
+const captureOutcome = captureExitCodeToOutcome(raceResult.status);
+
+let captureResult: CaptureResultArtifact | null = null;
+if (fs.existsSync(captureResultPath)) {
+    try {
+        captureResult = JSON.parse(fs.readFileSync(captureResultPath, 'utf-8')) as CaptureResultArtifact;
+    } catch {
+        captureResult = null;
+    }
+}
+
+if (captureOutcome === 'no-availability') {
     console.log('\\n✅ No availability detected. Ending flow securely without opening empty carts.\\n');
     process.exit(0);
-} else if (raceResult.status !== 0) {
+} else if (captureOutcome !== 'success') {
     console.error('\\n❌ Capture phase failed or was interrupted. Stopping flow.');
-    process.exit(raceResult.status ?? 1);
+    process.exit(raceResult.status ?? CAPTURE_EXIT_CODES.error);
 }
 
 if (isDryRun) {
@@ -77,7 +103,15 @@ console.log('   (Opening secured carts for manual checkout)\\n');
 
 const viewCartArgs = ['tsx', 'src/view-cart.ts'];
 if (accountsArg) {
-    viewCartArgs.push('--accounts', accountsArg);
+    const accountsToOpen = captureResult?.accountsWithHolds ?? accountsArg.split(',').map((value) => value.trim()).filter(Boolean);
+    if (accountsToOpen.length === 0) {
+        console.log('\\n✅ Capture completed, but no account carts were populated. Skipping checkout windows.\\n');
+        process.exit(0);
+    }
+    viewCartArgs.push('--accounts', accountsToOpen.join(','));
+} else if (captureResult && !captureResult.usedDefaultAccount) {
+    console.log('\\n✅ Capture completed without a default-account cart to open.\\n');
+    process.exit(0);
 }
 
 const cartResult = spawnSync('npx', viewCartArgs, { stdio: 'inherit' });

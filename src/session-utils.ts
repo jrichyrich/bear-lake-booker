@@ -3,6 +3,8 @@ import { resolve, join } from 'path';
 import * as fs from 'fs';
 import { SESSION_FILE, SESSION_DIR } from './config';
 
+const LEGACY_DEFAULT_SESSION_PATH = resolve(process.cwd(), SESSION_FILE);
+
 /**
  * Returns the absolute path to the sessions directory.
  * Ensures the directory exists with restricted permissions (700).
@@ -19,11 +21,32 @@ export function getSessionDir(): string {
 }
 
 /**
+ * Normalizes account input so all callers resolve sessions consistently.
+ * Undefined, empty strings, and "default" map to the shared default session.
+ */
+export function normalizeAccount(account?: string | null): string | undefined {
+  const trimmed = account?.trim();
+  if (!trimmed) return undefined;
+  if (trimmed.toLowerCase() === 'default') return undefined;
+  return trimmed.includes('@') ? trimmed : `${trimmed}@gmail.com`;
+}
+
+export function getAccountDisplayName(account?: string | null): string {
+  return normalizeAccount(account) ?? 'default';
+}
+
+export function getAccountStorageKey(account?: string | null): string {
+  const normalizedAccount = normalizeAccount(account);
+  return normalizedAccount ? (normalizedAccount.split('@')[0] ?? 'default') : 'default';
+}
+
+/**
  * Resolves the session filename for a given account.
  */
 export function getSessionFile(account?: string): string {
-  if (!account) return SESSION_FILE;
-  const accountPrefix = account.split('@')[0];
+  const normalizedAccount = normalizeAccount(account);
+  if (!normalizedAccount) return SESSION_FILE;
+  const accountPrefix = normalizedAccount.split('@')[0];
   return `session-${accountPrefix}.json`;
 }
 
@@ -34,12 +57,37 @@ export function getSessionPath(account?: string): string {
   return join(getSessionDir(), getSessionFile(account));
 }
 
+function migrateLegacyDefaultSession(): void {
+  const defaultSessionPath = getSessionPath();
+  if (fs.existsSync(defaultSessionPath)) return;
+  if (!fs.existsSync(LEGACY_DEFAULT_SESSION_PATH)) return;
+
+  fs.copyFileSync(LEGACY_DEFAULT_SESSION_PATH, defaultSessionPath);
+  try {
+    fs.chmodSync(defaultSessionPath, 0o600);
+  } catch {
+    // Ignore permission errors on migration.
+  }
+}
+
+/**
+ * Returns the session file path to read from, including a compatibility
+ * fallback for the historical root-level default session file.
+ */
+export function getReadableSessionPath(account?: string): string {
+  const normalizedAccount = normalizeAccount(account);
+  if (!normalizedAccount) migrateLegacyDefaultSession();
+
+  const defaultPath = getSessionPath(normalizedAccount);
+  return defaultPath;
+}
+
 /**
  * Checks if a session file exists for a given account.
  * If it exists, ensures it has restricted permissions (600).
  */
 export function sessionExists(account?: string): boolean {
-  const path = getSessionPath(account);
+  const path = getReadableSessionPath(account);
   const exists = fs.existsSync(path);
   if (exists) {
     try {
@@ -53,7 +101,7 @@ export function sessionExists(account?: string): boolean {
  * Returns summary info about the session's cookie lifecycle.
  */
 export function getSessionExpiryInfo(account?: string): { isExpired: boolean; earliestExpiry: Date | null } {
-  const path = getSessionPath(account);
+  const path = getReadableSessionPath(account);
   if (!fs.existsSync(path)) return { isExpired: true, earliestExpiry: null };
 
   try {

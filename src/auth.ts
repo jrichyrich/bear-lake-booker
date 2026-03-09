@@ -6,7 +6,7 @@ chromium.use(StealthPlugin());
 import { getReserveAmericaCredentials } from './keychain';
 import * as util from 'util';
 import { getThemeArgs } from './theme';
-import { getSessionFile, getSessionPath, validateSessionActive } from './session-utils';
+import { getSessionFile, getSessionPath, normalizeAccount, validateSessionActive } from './session-utils';
 
 const LOGIN_URL = 'https://utahstateparks.reserveamerica.com/memberSignIn.do';
 
@@ -18,7 +18,9 @@ const { values } = util.parseArgs({
   strict: false,
 });
 
-const userAccounts = typeof values.user === 'string' ? values.user.split(',').map(s => s.trim()) : [];
+const userAccounts = typeof values.user === 'string'
+  ? values.user.split(',').map((s) => normalizeAccount(s) ?? s.trim())
+  : [];
 
 type ActiveSession = { browser: any, context: any, sessionFile: string, sessionPath: string };
 
