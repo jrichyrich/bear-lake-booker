@@ -44,14 +44,14 @@ This document outlines the strategic plan, implementation details, and testing a
 
 ## 3. Auto-Session Refresh (Headless Auth)
 
-**Concept:** Proactively renew the `session.json` authentication token before it expires, entirely in the background.
+**Concept:** Proactively renew the `.sessions/session.json` authentication token before it expires, entirely in the background.
 **Goal:** Eliminate the need for the human operator to run `npm run auth` in a visible browser window every time the session expires, which is a hard prerequisite for 24/7 autonomous monitoring.
 
 ### Implementation Plan
 - Create a `refreshSession()` utility in `src/automation.ts`.
-- The Watchdog periodically checks the `expires` timestamp of the cookies in `session.json`.
+- The Watchdog periodically checks the `expires` timestamp of the cookies in `.sessions/session.json`.
 - If the token is near expiration (e.g., < 5 minutes), the Watchdog spawns a strictly headless Playwright instance.
-- Using `puppeteer-extra-plugin-stealth` to bypass the WAF, the headless agent navigates to the login page, retrieves the credentials securely from `src/keychain.ts`, submits the form, and rewrites the fresh cookies to `session.json`.
+- Using `puppeteer-extra-plugin-stealth` to bypass the WAF, the headless agent navigates to the login page, retrieves the credentials securely from `src/keychain.ts`, submits the form, and rewrites the fresh cookies to `.sessions/session.json`.
 
 ### Testing Plan
 - **Headless Prototyping:** Create a `test_headless_auth.ts` script to verify if ReserveAmerica's WAF (Cloudflare/Incapsula) triggers a blocking Captcha against a headless stealth browser. 

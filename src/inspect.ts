@@ -2,7 +2,8 @@ import { chromium, type BrowserContext, type Page, type Request } from 'playwrig
 import { parseArgs } from 'util';
 import { mkdirSync, createWriteStream, existsSync } from 'fs';
 import { join, resolve } from 'path';
-import { PARK_URL, SESSION_FILE } from './config';
+import { PARK_URL } from './config';
+import { getReadableSessionPath } from './session-utils';
 
 const CAPTURE_DIR = 'captures';
 
@@ -96,7 +97,7 @@ async function attachLogging(context: BrowserContext, capturePath: string) {
 }
 
 async function main() {
-  const sessionPath = resolve(process.cwd(), SESSION_FILE);
+  const sessionPath = getReadableSessionPath();
   if (!existsSync(sessionPath)) {
     throw new Error(`Missing ${sessionPath}. Run \`npm run auth\` first.`);
   }

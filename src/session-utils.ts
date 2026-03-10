@@ -3,8 +3,6 @@ import { resolve, join } from 'path';
 import * as fs from 'fs';
 import { SESSION_FILE, SESSION_DIR } from './config';
 
-const LEGACY_DEFAULT_SESSION_PATH = resolve(process.cwd(), SESSION_FILE);
-
 /**
  * Returns the absolute path to the sessions directory.
  * Ensures the directory exists with restricted permissions (700).
@@ -69,37 +67,8 @@ export function getSessionFile(account?: string): string {
 export function getSessionPath(account?: string): string {
   return join(getSessionDir(), getSessionFile(account));
 }
-
-function migrateLegacyDefaultSession(): void {
-  const defaultSessionPath = getSessionPath();
-  if (!fs.existsSync(LEGACY_DEFAULT_SESSION_PATH)) return;
-
-  try {
-    fs.chmodSync(LEGACY_DEFAULT_SESSION_PATH, 0o600);
-  } catch {
-    // Ignore permission errors while hardening the legacy file.
-  }
-
-  if (fs.existsSync(defaultSessionPath)) return;
-
-  fs.copyFileSync(LEGACY_DEFAULT_SESSION_PATH, defaultSessionPath);
-  try {
-    fs.chmodSync(defaultSessionPath, 0o600);
-  } catch {
-    // Ignore permission errors on migration.
-  }
-}
-
-/**
- * Returns the session file path to read from, including a compatibility
- * fallback for the historical root-level default session file.
- */
 export function getReadableSessionPath(account?: string): string {
-  const normalizedAccount = normalizeAccount(account);
-  if (!normalizedAccount) migrateLegacyDefaultSession();
-
-  const defaultPath = getSessionPath(normalizedAccount);
-  return defaultPath;
+  return getSessionPath(normalizeAccount(account));
 }
 
 /**

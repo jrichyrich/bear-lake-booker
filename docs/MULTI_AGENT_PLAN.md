@@ -11,7 +11,7 @@ Run multiple Playwright agents in parallel for the capture step while keeping th
   - open site details with `arvdate` and `lengthOfStay` preloaded,
   - stop at site details with `--dryRun`,
   - stop at `Order Details` with `--book`.
-- `session.json` exists locally and is used for authenticated Playwright runs.
+- `.sessions/session.json` exists locally and is used for authenticated Playwright runs.
 
 ## Recommended Architecture
 ### 1. Monitoring stays HTTP-only
@@ -40,7 +40,7 @@ Run multiple Playwright agents in parallel for the capture step while keeping th
 ### Phase 1: Profile-backed agents
 - Add a `profiles/` directory and ignore it in `.gitignore`.
 - Create one persistent profile directory per agent.
-- Add a startup mode to hydrate a profile from `session.json` if the profile is empty.
+- Add a startup mode to hydrate a profile from `.sessions/session.json` if the profile is empty.
 - Preserve per-agent `userAgent` and timezone settings.
 
 ### Phase 2: Agent orchestration
@@ -109,7 +109,7 @@ Recommended defaults:
 - Persistent profiles can accumulate stale state.
 - Mitigation:
   - add a reset command for a single agent profile,
-  - keep `session.json` as the canonical login source.
+  - keep `.sessions/session.json` as the canonical login source.
 
 ## Recommended Rollout
 1. Implement persistent profiles with `c=1` and verify no behavior change.

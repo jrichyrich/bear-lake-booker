@@ -16,7 +16,7 @@ Here is a review of the design, highlighting the biggest gaps and how we should 
 
 ### 3. The Automation Boundary (Session Expiry)
 **The Problem:** The entire system breaks if the session expires, which enforces the "15-minute protocol" where you must babysit the script right before 8 AM.
-**The Fix:** Now that we have `keychain.ts` integrated directly into the tool, we can build a headless `refreshSession()` utility. The Watchdog daemon could check the `expires` timestamp inside `session.json`, and if it's within 5 minutes of expiring, it could quietly spin up a headless browser in the background, auto-fill the login form from the keychain, save a fresh JSON file, and go back to sleep. You'd never have to run `npm run auth` manually again.
+**The Fix:** Now that we have `keychain.ts` integrated directly into the tool, we can build a headless `refreshSession()` utility. The Watchdog daemon could check the `expires` timestamp inside `.sessions/session.json`, and if it's within 5 minutes of expiring, it could quietly spin up a headless browser in the background, auto-fill the login form from the keychain, save a fresh JSON file, and go back to sleep. You'd never have to run `npm run auth` manually again.
 
 ### 4. Communication (Remote Notifications)
 **The Problem:** If the agent secures a site at 2 PM while you are away from the computer, you will only know about it if you are staring at your macOS desktop. Holds expire in 15 minutes.
