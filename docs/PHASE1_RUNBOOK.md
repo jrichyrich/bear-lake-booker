@@ -46,6 +46,17 @@ Use these defaults unless there is a reason not to:
 - use `--checkoutAuthMode manual` if CAPTCHA is likely
 - keep `--maxHolds 2` or lower when evaluating multi-hold behavior
 
+## Known Operating Limits
+These limits are now validated enough to use as the Phase 1 baseline:
+
+- use `--headed --checkoutAuthMode manual` for live hold attempts; keep a human present for checkout login or CAPTCHA
+- treat `-c 4` as the default multi-account live baseline; increase only after a release-window rehearsal proves it helps
+- use `--bookingMode single` when the goal is one reliable hold path instead of parallel multi-hold coordination
+- use `--bookingMode multi --maxHolds 2` only after confirming a known-bookable target and narrowing the run with `--sites`
+- expect pre-flight session renewal to be common, even with recently saved `.sessions/session-*.json` files
+- use `npm run view-cart -- --accounts ...` immediately after a successful run so each winning account cart is visible for manual checkout
+- treat manual checkout as the hard automation boundary; the script can secure cart holds, but payment and any post-cart CAPTCHA remain operator work
+
 ## Phase 1 Validation Matrix
 These are the four scenarios that should be exercised and documented before Phase 1 is considered complete.
 

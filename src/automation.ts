@@ -5,6 +5,12 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { getReadableSessionPath, injectSessionState } from './session-utils';
 import { isAuthenticatedBodyText, looksLikeCheckoutLoginPage } from './checkout-auth';
+import {
+  determineCartConfirmation,
+  extractCartSiteIds,
+  type CartConfirmationSource,
+  isCartUrl,
+} from './cart-detection';
 
 export type SiteSelection = {
   site: string;
@@ -34,6 +40,7 @@ const MAX_RETRIES = 3;
 const RETRY_BACKOFF_MS = 5000;
 const ALLOWED_ROW_ACTIONS = ['SEE DETAILS', 'ENTER DATE', 'BOOK NOW', 'BOOK THESE DATES', 'AVAILABLE'];
 const BOOKABLE_STATUS_CODES = new Set(['A', 'B']);
+const CART_URL = 'https://utahstateparks.reserveamerica.com/viewShoppingCart.do';
 
 export async function sleep(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -490,35 +497,187 @@ export async function prepareOrderDetails(page: Page, agentLabel = ''): Promise<
   await sleep(500);
 }
 
-export async function addToCart(
+export type CartState = {
+  siteIds: string[];
+  url: string;
+  bodyText: string;
+  checkoutLoginDetected: boolean;
+  error: string | undefined;
+};
+
+export type AddToCartResult = {
+  success: boolean;
+  confirmationSource: CartConfirmationSource;
+  finalUrl: string;
+  cartSitesBefore: string[];
+  cartSitesAfter: string[];
+  clickedSelectors: string[];
+  checkoutAuthEncountered: boolean;
+  verificationError: string | undefined;
+};
+
+async function readCartStateFromPage(
   page: Page,
   agentLabel = '',
   account?: string,
   headed = false,
   checkoutAuthMode: CheckoutAuthMode = 'auto',
-): Promise<boolean> {
+): Promise<CartState> {
+  try {
+    await page.goto(CART_URL, { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
+
+    if (await isCheckoutLoginPage(page)) {
+      console.log(`${agentLabel}Cart verification requires checkout auth recovery...`);
+      const loginResult = await ensureLoggedIn(page, agentLabel, account);
+      if (loginResult === 'captcha-required') {
+        if (checkoutAuthMode !== 'manual' || !headed) {
+          return {
+            siteIds: [],
+            url: page.url(),
+            bodyText: (await page.textContent('body')) || '',
+            checkoutLoginDetected: true,
+            error: 'checkout-auth-required',
+          };
+        }
+
+        const recovered = await waitForManualCheckoutAuth(page, agentLabel);
+        if (!recovered) {
+          return {
+            siteIds: [],
+            url: page.url(),
+            bodyText: (await page.textContent('body')) || '',
+            checkoutLoginDetected: true,
+            error: 'manual-checkout-auth-timeout',
+          };
+        }
+      } else if (loginResult === 'failed') {
+        return {
+          siteIds: [],
+          url: page.url(),
+          bodyText: (await page.textContent('body')) || '',
+          checkoutLoginDetected: true,
+          error: 'checkout-auth-failed',
+        };
+      }
+    }
+
+    await page.goto(CART_URL, { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
+    const bodyText = (await page.textContent('body')) || '';
+    return {
+      siteIds: extractCartSiteIds(bodyText),
+      url: page.url(),
+      bodyText,
+      checkoutLoginDetected: await isCheckoutLoginPage(page).catch(() => false),
+      error: undefined,
+    };
+  } catch (error) {
+    return {
+      siteIds: [],
+      url: page.url(),
+      bodyText: '',
+      checkoutLoginDetected: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export async function inspectCartState(
+  context: BrowserContext,
+  agentLabel = '',
+  account?: string,
+  headed = false,
+  checkoutAuthMode: CheckoutAuthMode = 'auto',
+): Promise<CartState> {
+  const page = await context.newPage();
+  try {
+    return await readCartStateFromPage(page, agentLabel, account, headed, checkoutAuthMode);
+  } finally {
+    await page.close().catch(() => {});
+  }
+}
+
+export async function addToCart(
+  context: BrowserContext,
+  page: Page,
+  requestedSite: string,
+  agentLabel = '',
+  account?: string,
+  headed = false,
+  checkoutAuthMode: CheckoutAuthMode = 'auto',
+): Promise<AddToCartResult> {
+  const cartBefore = await inspectCartState(
+    context,
+    `${agentLabel}[Cart Before] `,
+    account,
+    headed,
+    checkoutAuthMode,
+  );
+  const clickedSelectors: string[] = [];
+  let checkoutAuthEncountered = false;
+
   for (let attempt = 1; attempt <= 2; attempt++) {
     if (await isCheckoutLoginPage(page)) {
+      checkoutAuthEncountered = true;
       console.log(`${agentLabel}Checkout auth required. Attempting session recovery...`);
       const loginResult = await ensureLoggedIn(page, agentLabel, account);
       if (loginResult === 'captcha-required') {
         if (checkoutAuthMode !== 'manual') {
           console.error(`${agentLabel}Checkout CAPTCHA encountered in auto mode. Re-run with --headed --checkoutAuthMode manual.`);
-          break;
+          const cartAfter = await inspectCartState(context, `${agentLabel}[Cart After] `, account, headed, checkoutAuthMode);
+          return {
+            success: false,
+            confirmationSource: 'checkout-login',
+            finalUrl: page.url(),
+            cartSitesBefore: cartBefore.siteIds,
+            cartSitesAfter: cartAfter.siteIds,
+            clickedSelectors,
+            checkoutAuthEncountered,
+            verificationError: cartAfter.error ?? cartBefore.error,
+          };
         }
 
         if (!headed) {
           console.error(`${agentLabel}Checkout CAPTCHA cannot be solved in headless mode. Re-run with --headed --checkoutAuthMode manual.`);
-          break;
+          const cartAfter = await inspectCartState(context, `${agentLabel}[Cart After] `, account, headed, checkoutAuthMode);
+          return {
+            success: false,
+            confirmationSource: 'checkout-login',
+            finalUrl: page.url(),
+            cartSitesBefore: cartBefore.siteIds,
+            cartSitesAfter: cartAfter.siteIds,
+            clickedSelectors,
+            checkoutAuthEncountered,
+            verificationError: cartAfter.error ?? cartBefore.error,
+          };
         }
 
         const recovered = await waitForManualCheckoutAuth(page, agentLabel);
         if (!recovered) {
           console.error(`${agentLabel}Timed out waiting for manual checkout sign-in/CAPTCHA.`);
-          break;
+          const cartAfter = await inspectCartState(context, `${agentLabel}[Cart After] `, account, headed, checkoutAuthMode);
+          return {
+            success: false,
+            confirmationSource: 'checkout-login',
+            finalUrl: page.url(),
+            cartSitesBefore: cartBefore.siteIds,
+            cartSitesAfter: cartAfter.siteIds,
+            clickedSelectors,
+            checkoutAuthEncountered,
+            verificationError: cartAfter.error ?? cartBefore.error,
+          };
         }
       } else if (loginResult === 'failed') {
-        break;
+        const cartAfter = await inspectCartState(context, `${agentLabel}[Cart After] `, account, headed, checkoutAuthMode);
+        return {
+          success: false,
+          confirmationSource: 'checkout-login',
+          finalUrl: page.url(),
+          cartSitesBefore: cartBefore.siteIds,
+          cartSitesAfter: cartAfter.siteIds,
+          clickedSelectors,
+          checkoutAuthEncountered,
+          verificationError: cartAfter.error ?? cartBefore.error,
+        };
       }
       await page.waitForLoadState('domcontentloaded').catch(() => {});
     }
@@ -540,17 +699,29 @@ export async function addToCart(
     for (const selector of selectors) {
       const btn = page.locator(selector).first();
       if ((await btn.count()) > 0 && (await btn.isVisible())) {
+        clickedSelectors.push(selector);
         console.log(`${agentLabel}Found button with selector: ${selector}. Clicking...`);
         const nav = page.waitForNavigation({ waitUntil: 'networkidle', timeout: 15000 }).catch(() => null);
         await btn.click({ force: true });
         await nav;
 
         const currentUrl = page.url();
-        if (currentUrl.includes('viewShoppingCart.do') || currentUrl.includes('shoppingCart.do')) {
-          return true;
+        if (isCartUrl(currentUrl)) {
+          const cartAfter = await inspectCartState(context, `${agentLabel}[Cart After] `, account, headed, checkoutAuthMode);
+          return {
+            success: true,
+            confirmationSource: 'cart-url',
+            finalUrl: currentUrl,
+            cartSitesBefore: cartBefore.siteIds,
+            cartSitesAfter: cartAfter.siteIds,
+            clickedSelectors,
+            checkoutAuthEncountered,
+            verificationError: cartAfter.error ?? cartBefore.error,
+          };
         }
 
         if (await isCheckoutLoginPage(page)) {
+          checkoutAuthEncountered = true;
           console.log(`${agentLabel}Checkout redirected to sign-in. Retrying after login recovery...`);
           break;
         }
@@ -562,25 +733,64 @@ export async function addToCart(
     const primaryBtn = page.locator('button.primary, .btn-primary, .btn-success').first();
     if ((await primaryBtn.count()) > 0) {
       console.log(`${agentLabel}Trying fallback primary button...`);
+      clickedSelectors.push('button.primary, .btn-primary, .btn-success');
       await primaryBtn.click().catch(() => {});
       await page.waitForLoadState('networkidle').catch(() => {});
-      if (page.url().includes('viewShoppingCart.do') || page.url().includes('shoppingCart.do')) {
-        return true;
+      if (isCartUrl(page.url())) {
+        const cartAfter = await inspectCartState(context, `${agentLabel}[Cart After] `, account, headed, checkoutAuthMode);
+        return {
+          success: true,
+          confirmationSource: 'cart-url',
+          finalUrl: page.url(),
+          cartSitesBefore: cartBefore.siteIds,
+          cartSitesAfter: cartAfter.siteIds,
+          clickedSelectors,
+          checkoutAuthEncountered,
+          verificationError: cartAfter.error ?? cartBefore.error,
+        };
       }
     }
   }
 
+  const finalUrl = page.url();
   const html = await page.content().catch(() => '');
-  if (html) saveCheckoutDebugHtml(html);
-
-  return page.evaluate(() => {
-    const bodyText = document.body.textContent ?? '';
-    return (
-      window.location.pathname.includes('/viewShoppingCart.do') ||
-      window.location.pathname.includes('/shoppingCart.do') ||
-      bodyText.includes('Shopping Cart')
-    );
+  const bodyText = (await page.textContent('body')) || '';
+  const checkoutLoginDetected = await isCheckoutLoginPage(page).catch(() => false);
+  const cartAfter = await inspectCartState(context, `${agentLabel}[Cart After] `, account, headed, checkoutAuthMode);
+  const confirmation = determineCartConfirmation({
+    finalUrl,
+    bodyText,
+    requestedSite,
+    cartSitesBefore: cartBefore.siteIds,
+    cartSitesAfter: cartAfter.siteIds,
+    checkoutLoginDetected: checkoutLoginDetected || cartAfter.checkoutLoginDetected,
   });
+
+  if (!confirmation.success && html) {
+    saveCheckoutDebugHtml(html);
+  }
+
+  return {
+    success: confirmation.success,
+    confirmationSource: confirmation.source,
+    finalUrl,
+    cartSitesBefore: cartBefore.siteIds,
+    cartSitesAfter: cartAfter.siteIds,
+    clickedSelectors,
+    checkoutAuthEncountered,
+    verificationError: cartAfter.error ?? cartBefore.error,
+  };
+}
+
+export async function verifyCartSiteIds(
+  page: Page,
+  agentLabel = '',
+  account?: string,
+  headed = false,
+  checkoutAuthMode: CheckoutAuthMode = 'auto',
+): Promise<string[]> {
+  const state = await readCartStateFromPage(page, agentLabel, account, headed, checkoutAuthMode);
+  return state.siteIds;
 }
 
 export async function continueToOrderDetails(

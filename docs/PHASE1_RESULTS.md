@@ -14,15 +14,15 @@ Record each run so the team can answer:
 - what needs to be fixed before the 8:00 AM release race
 
 ## Immediate Next Action
-Current focus: Phase 1 scenarios are now mostly executed. The next validation work should use a known-bookable target to exercise two-account hold routing and multi-hold coordination under real availability.
+Phase 1 is closed as of 2026-03-10. The final closeout run exercised real two-account multi-hold behavior against a known-bookable BIRCH target, reached two distinct cart holds, and confirmed the operator handoff path.
 
-Use this sequence next:
+Use this sequence for the next release rehearsal:
 
 1. Keep both account sessions fresh:
    `npm run auth -- --user lisarichards1984,jrichards1981`
-2. Identify a known-bookable release-window target or same-day validation target.
-3. Re-run Scenario 3 or 4 against that target.
-4. Record the outcome in this file before changing coordination logic again.
+2. Scout a known-bookable release-window target and narrow it with `--sites`.
+3. Re-run Scenario 4 in headed/manual mode before changing coordination logic again.
+4. Record the outcome in this file before changing release-day operating limits.
 
 Recommended first dry-run assumptions:
 - use `BIRCH`
@@ -37,7 +37,7 @@ Recommended first dry-run assumptions:
 | 1. Single account, dry run | Completed | 2026-03-09 | Auth/session path validated; scheduled dry run reached site details for BC85 on 05/08/2026 |
 | 2. Single account, live `--book` | Completed | 2026-03-09 | Browser search path was fixed, checkout CAPTCHA handoff worked, and Agent 2 secured BH08 in cart |
 | 3. Multi-account, single mode | Completed | 2026-03-09 | Both account sessions renewed and all four agents completed timed launch with `no-candidates` |
-| 4. Multi-account, multi mode | Completed | 2026-03-09 | Both account sessions renewed and all four agents completed timed launch with `no-candidates` in multi mode |
+| 4. Multi-account, multi mode | Completed | 2026-03-10 | Two accounts secured BH09 and BH11 in separate carts on 05/22/2026, carts opened successfully, and `maxHolds=2` was reached without duplicate-site holds |
 
 ## Run Template
 Copy this block for each validation run.
@@ -870,7 +870,7 @@ npm run race -- -d 05/08/2026 -l 3 -o BIRCH -c 4 -t 20:33:30 --book --accounts l
 
 ### Scenario 4: Multi-account, multi mode
 Status:
-Completed for the two-account multi-mode session-routing and timed launch path. No candidate sites were found, so multi-hold registration and max-hold enforcement were not exercised with real holds.
+Completed for both the session-routing path and a real multi-hold validation path. The 2026-03-10 closeout run exercised two-account hold routing against a known-bookable target, reached two distinct cart holds, opened both carts successfully, and provided the evidence needed to close Phase 1.
 
 Runs:
 
@@ -958,9 +958,100 @@ npm run race -- -d 05/08/2026 -l 3 -o BIRCH -c 4 -t 20:37:00 --book --accounts l
 - Safe to repeat:
   yes
 - Safe for release day:
-  for multi-mode session-routing and launch validation, yes; for real multi-hold behavior, not yet
+  yes within the documented operating limits, with headed/manual checkout handoff and pre-flight session renewal expected
 - Follow-up required:
-  run Scenario 4 again against a release-window target or known-bookable case so actual multi-hold coordination can be observed
+  use this scenario as the baseline for release-window rehearsals and Phase 2 targeting work
+
+### Run ID
+- Date: 2026-03-10
+- Time: approximately 9:12 AM America/Denver
+- Operator: Codex + user
+- Scenario: 4. Multi-account, multi mode
+- Environment:
+  local workspace, branch `main`, headed, immediate launch
+
+### Command
+```bash
+npm run race -- -d 05/22/2026 -l 3 -o BIRCH -c 4 --book --accounts lisarichards1984@gmail.com,jrichards1981@gmail.com --bookingMode multi --maxHolds 2 --sites BH08,BH09,BH11 --headed --checkoutAuthMode manual
+```
+
+### Accounts and Sessions
+- Accounts used:
+  `lisarichards1984@gmail.com`, `jrichards1981@gmail.com`
+- Expected session files:
+  `.sessions/session-lisarichards1984.json`
+  `.sessions/session-jrichards1981.json`
+- Session validation result:
+  both accounts required headed pre-flight renewal, then validated successfully and were reused by `view-cart`
+
+### Launch Setup
+- Target arrival date:
+  05/22/2026
+- Loop:
+  BIRCH
+- Concurrency:
+  4
+- Booking mode:
+  multi
+- Max holds:
+  2
+- Launch mode:
+  preload
+- Checkout auth mode:
+  manual
+- Sites allowlist:
+  `BH08,BH09,BH11`
+
+### Outcome
+- Result:
+  hold secured
+- Holds secured:
+  `BH09`, `BH11`
+- Which account received each hold:
+  `lisarichards1984@gmail.com` -> `BH09`
+  `jrichards1981@gmail.com` -> `BH11`
+- Duplicate prevention behavior:
+  no duplicate-site hold occurred; each winning account captured a different allowlisted site, and the remaining agents finished with `no-candidates` after the two holds were secured
+- Cart opening result:
+  `npm run view-cart -- --accounts lisarichards1984@gmail.com,jrichards1981@gmail.com` verified both sessions as active and opened both carts successfully
+
+### CAPTCHA and Manual Handoff
+- CAPTCHA encountered:
+  no explicit checkout CAPTCHA reported during the hold capture itself
+- Stage:
+  both accounts required headed manual pre-flight renewal before the live run
+- Manual intervention required:
+  yes
+- Notes:
+  manual interaction was needed before launch to refresh both account sessions; once the holds were secured, both carts opened with the saved sessions and were ready for manual checkout
+
+### Evidence
+- Run summary file:
+  `logs/summary-2026-03-10T15-12-56-748Z.json`
+- Debug HTML:
+  `logs/debug-search-results-lisarichards1984-1773155571001.html`
+  `logs/debug-search-results-jrichards1981-1773155574453.html`
+- Screenshots:
+  `logs/cart-agent-1-BH09-1773155568380.png`
+  `logs/cart-agent-2-BH11-1773155571113.png`
+- Console notes:
+  the allowlist was applied, Agent 1 held `BH09`, Agent 2 held `BH11`, and `accountsWithHolds` included both configured accounts
+
+### Issues Found
+- Issue 1:
+  recently saved sessions can still require headed pre-flight renewal immediately before a live run
+- Issue 2:
+  the operator still needs to stay present for checkout and any post-cart CAPTCHA even when the cart hold itself succeeds cleanly
+- Issue 3:
+  the allowlist and `maxHolds=2` cap worked well for a focused closeout run, but broader release-window targeting still belongs in Phase 2
+
+### Decision
+- Safe to repeat:
+  yes
+- Safe for release day:
+  yes within the documented operating limits: headed/manual mode, pre-flight renewal, tight site allowlists, and manual checkout handoff
+- Follow-up required:
+  move to Phase 2 release-window execution work; keep using this run as the reference multi-mode baseline
 
 ## Phase 1 Exit Check
 - [x] README and docs reflect the current workflow
@@ -971,7 +1062,7 @@ npm run race -- -d 05/08/2026 -l 3 -o BIRCH -c 4 -t 20:37:00 --book --accounts l
 - [x] CAPTCHA behavior documented
 - [x] Session renewal behavior documented
 - [x] Cart-opening behavior documented
-- [ ] Known operating limits written down
+- [x] Known operating limits written down
 
 ## Open Risks
 - Risk 1:
@@ -980,3 +1071,80 @@ npm run race -- -d 05/08/2026 -l 3 -o BIRCH -c 4 -t 20:37:00 --book --accounts l
 - checkout CAPTCHA can still appear after `Order Details`, so a human must be available during the live race
 - Risk 3:
 - site-level cart conversion is not uniform; one valid candidate may fail while another succeeds moments later
+
+## Phase 2 Kickoff Probe
+On 2026-03-10, after Phase 1 was closed, we ran an exploratory multi-account stress test to see whether the current coordinator could stretch beyond the Phase 1 operating limit of `maxHolds=2`.
+
+### Probe Command
+```bash
+npm run race -- -d 06/09/2026 -l 3 -o BIRCH -c 6 --book --accounts lisarichards1984@gmail.com,jrichards1981@gmail.com --bookingMode multi --maxHolds 3 --sites BH03,BH04,BH07,BH08,BH09,BH11 --headed --checkoutAuthMode manual
+```
+
+### Probe Outcome
+- Result:
+  partial success
+- Holds secured:
+  `lisarichards1984@gmail.com` -> `BH04`, `BH08`, `BH11`
+  `jrichards1981@gmail.com` -> `BH07`, `BH09`
+- Sixth attempt:
+  the last agent failed to move `BH11` into cart, so the run finished at 5 total holds instead of 6
+- Evidence:
+  `logs/summary-2026-03-10T15-21-29-387Z.json`
+  `logs/cart-agent-1-BH04-1773156065640.png`
+  `logs/cart-agent-2-BH07-1773156068266.png`
+  `logs/cart-agent-3-BH08-1773156075798.png`
+  `logs/cart-agent-4-BH09-1773156076644.png`
+  `logs/cart-agent-5-BH11-1773156080306.png`
+  `logs/fail-cart-agent-6-BH11-1773156088661.png`
+
+### What This Proves
+- the runtime can coordinate at least 3 holds on a single account
+- the global held-site registry still prevented duplicate successful holds across accounts
+- the per-account closure logic triggered correctly once `lisarichards1984@gmail.com` reached `maxHolds=3`
+
+### What Phase 2 Must Improve
+- late-stage candidate allocation still needs work so the second account can keep pursuing a distinct third site instead of collapsing onto an already-contended target
+- allowlist ranking for second and third holds should prefer distinct, high-confidence sites before weaker fallback candidates
+- release-window execution needs stronger scout discovery and per-account stop logic so 6-agent runs can reliably convert into 6 total holds when inventory exists
+
+### Post-Fix Validation
+After implementing the first Phase 2 coordination slice, we reran the same `maxHolds=3` scenario.
+
+- Command:
+  `npm run race -- -d 06/09/2026 -l 3 -o BIRCH -c 6 --book --accounts lisarichards1984@gmail.com,jrichards1981@gmail.com --bookingMode multi --maxHolds 3 --sites BH03,BH04,BH07,BH08,BH09,BH11 --headed --checkoutAuthMode manual`
+- Evidence:
+  `logs/summary-2026-03-10T15-40-52-519Z.json`
+  `logs/fail-cart-agent-1-BH08-1773157228032.png`
+  `logs/fail-cart-agent-2-BH11-1773157230711.png`
+  `logs/fail-cart-agent-4-BH08-1773157239619.png`
+  `logs/fail-cart-agent-3-BH11-1773157251574.png`
+- Outcome:
+  no holds landed, but the coordinator no longer seeded every agent with the stale `BH03` preference; the first live attempts split across `BH08` and `BH11`, and later same-account agents skipped in-flight or already-failed sites instead of repeating them
+- Interpretation:
+  the specific late-stage convergence bug was reduced, but this run only exposed two live allowlisted browser candidates and both repeatedly failed at cart transition, so the remaining blocker looked like site-level cart conversion rather than coordinator reuse of a stale preferred site
+- Next validation target:
+  rerun the Phase 2 probe with a fresh six-site allowlist taken from the live HTTP scout immediately before launch so the coordinator is tested against a broader set than `BH08` and `BH11`
+
+### Successful 6-Hold Validation
+After hardening cart confirmation detection and rerunning with a fresh six-site allowlist from the live scout, the Phase 2 `maxHolds=3` scenario reached the full 6-hold objective.
+
+- Command:
+  `npm run race -- -d 05/22/2026 -l 3 -o BIRCH -c 6 --book --accounts lisarichards1984@gmail.com,jrichards1981@gmail.com --bookingMode multi --maxHolds 3 --sites BH03,BH09,BH11,BH12,BH13,BH22 --headed --checkoutAuthMode manual`
+- Evidence:
+  `logs/summary-2026-03-10T17-15-00-167Z.json`
+  `logs/cart-agent-1-BH03-1773162885641.png`
+  `logs/cart-agent-2-BH09-1773162888588.png`
+  `logs/cart-agent-3-BH11-1773162892017.png`
+  `logs/cart-agent-4-BH12-1773162894273.png`
+  `logs/cart-agent-5-BH13-1773162896490.png`
+  `logs/cart-agent-6-BH22-1773162898626.png`
+- Outcome:
+  success; `lisarichards1984@gmail.com` secured `BH03`, `BH11`, and `BH13`, while `jrichards1981@gmail.com` secured `BH09`, `BH12`, and `BH22`
+- What this proves:
+  the account-aware allocator now fans out cleanly across six distinct targets
+  per-account stop logic closes each account exactly at `maxHolds=3`
+  cart confirmation is now truthful even when ReserveAmerica stays on `switchBookingAction.do`, because the run summary recorded the correct before/after cart contents for all six successful agents
+- Remaining Phase 2 focus:
+  pre-8:00 scout discovery and allowlist generation immediately before launch
+  tighter warm-up and launch timing around the release window
+  operational release rehearsal using the now-proven six-hold coordination path

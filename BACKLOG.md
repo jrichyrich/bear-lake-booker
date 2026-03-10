@@ -14,20 +14,11 @@
 - The current safety boundary remains unchanged: automation stops at cart hold / `Order Details`, and payment is still manual.
 
 ## Active Backlog
-### Phase 1: Release Readiness
-- [ ] Validate the full 8:00 AM release-day runbook with both accounts.
-  This includes session prep, launch timing, CAPTCHA handoff, and cart opening after a hold.
-- [ ] Harden and document live `bookingMode=multi` behavior.
-  Current support exists, but the live operating envelope still needs validation around hold caps, duplicate-site prevention, cross-account routing, and cart contention.
-- [ ] Document recommended release-day commands for:
-  single account dry run, single account live hold, two-account single mode, and two-account multi mode.
-- [ ] Align remaining design docs with the current `.sessions/` model, `bookingMode`, and the operator runbook.
-
 ### Phase 2: Release-Window Execution
 - [ ] Add or refine pre-8:00 scout discovery so target sites are known before launch.
-- [ ] Improve agent allocation across 2 accounts so up to 6 holds can be pursued without duplicate effort.
 - [ ] Tighten launch timing and warm-up behavior around the 8:00 AM release event.
 - [ ] Improve target-site allowlisting and prioritization for the release window.
+- [ ] Convert the proven six-hold coordination path into a repeatable release-window rehearsal with fresh scout output and empty-cart preflight.
 
 ### Phase 3: Operational Hardening
 - [ ] Add cross-platform push notifications (`ntfy.sh`, Pushover, or Twilio) for hold secured and manual action required events.
@@ -43,6 +34,10 @@
 - [ ] Revisit broader autonomous monitoring after the release-window flow is proven.
 
 ## Completed Milestones
+- [x] Phase 2 six-hold live validation succeeded on 05/22/2026: `lisarichards1984@gmail.com` secured `BH03`, `BH11`, `BH13` and `jrichards1981@gmail.com` secured `BH09`, `BH12`, `BH22`, proving `bookingMode=multi --maxHolds 3` across both accounts.
+- [x] Cart confirmation hardening: authenticated shopping-cart pages are no longer misclassified as checkout login, and cart-site extraction now records glued labels like `...HOOKUPBH03`.
+- [x] Exploratory `maxHolds=3` probe reached 5 total holds on 06/09/2026, proving 3 holds on one account and 2 on the other before a late-stage cart failure on the sixth attempt.
+- [x] Phase 1 release-readiness closeout: two-account `bookingMode=multi` validation on 05/22/2026 secured BH09 and BH11 across both accounts, opened both carts, and established documented operating limits.
 - [x] Direct HTTP availability monitoring for exact-date searches.
 - [x] Unified Playwright race flow with persistent profiles, per-agent logs, screenshots, and run summaries.
 - [x] Parser test coverage plus focused unit tests for session, booking-policy, site-targeting, and serial task queue helpers.

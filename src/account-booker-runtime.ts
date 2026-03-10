@@ -1,5 +1,12 @@
 import { type BrowserContext, type Page } from 'playwright';
-import { addToCart, continueToOrderDetails, openSiteDetails, type CheckoutAuthMode, type SiteSelection } from './automation';
+import {
+  addToCart,
+  continueToOrderDetails,
+  openSiteDetails,
+  type AddToCartResult,
+  type CheckoutAuthMode,
+  type SiteSelection,
+} from './automation';
 import { type AccountBooker, type CaptureAccount } from './account-booker';
 
 export type BookerAttemptResult = 'success' | 'failed' | 'stopped';
@@ -14,6 +21,8 @@ type BookerAttemptOptions = {
   headed: boolean;
   checkoutAuthMode: CheckoutAuthMode;
   onCartFailure: () => Promise<void>;
+  onCartVerified: (siteIds: string[]) => Promise<void>;
+  onCartAttemptSettled: (result: AddToCartResult) => Promise<void>;
   onHoldSuccess: () => Promise<boolean>;
   onFailureArtifact: (path: string) => void;
   onSuccessArtifact: (path: string) => void;
@@ -61,14 +70,20 @@ export class AccountBookerRuntime {
 
       console.log(`${options.agentLabel}Reached Order Details for ${options.selection.site}. Finalizing hold...`);
 
-      if (await addToCart(
+      const cartResult = await addToCart(
+        this.context,
         page,
+        options.selection.site,
         options.agentLabel,
         options.account.account,
         options.headed,
         options.checkoutAuthMode,
-      )) {
+      );
+      await options.onCartAttemptSettled(cartResult);
+
+      if (cartResult.success) {
         const registered = await options.onHoldSuccess();
+        await options.onCartVerified(cartResult.cartSitesAfter);
         if (!registered) {
           return 'failed';
         }
@@ -84,6 +99,7 @@ export class AccountBookerRuntime {
       await page.screenshot({ path: errorPath }).catch(() => {});
       console.log(`${options.agentLabel}Failed to move to Shopping Cart. Screenshot: ${errorPath}`);
       options.onFailureArtifact(errorPath);
+      await options.onCartVerified(cartResult.cartSitesAfter);
       await options.onCartFailure();
       return 'failed';
     });

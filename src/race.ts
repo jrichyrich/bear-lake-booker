@@ -11,13 +11,19 @@ import { USER_AGENTS } from './config';
 import { notifySuccess, type SuccessStage } from './notify';
 import { AccountBooker, type CaptureAccount, type HoldRecord } from './account-booker';
 import { AccountBookerRuntime } from './account-booker-runtime';
-import { type AgentRunSummary, writeRunSummary } from './reporter';
+import { type AccountRunSummary, type AgentRunSummary, writeRunSummary } from './reporter';
 import { CAPTURE_EXIT_CODES, type CaptureResultArtifact, captureOutcomeToExitCode, type CaptureOutcome } from './flow-contract';
 import { getAccountDisplayName, getAccountStorageKey, getReadableSessionPath, normalizeCliAccounts, sessionExists } from './session-utils';
 import { executeLaunchStrategy, parseLaunchMode } from './launch-strategy';
 import { ensureActiveSession } from './session-manager';
-import { filterTargetSiteIds, getInitialTargetSites, prioritizeTargetSiteIds } from './site-targeting';
 import {
+  assignPreferredSitesToAgents,
+  filterTargetSiteIds,
+  getInitialTargetSites,
+  prioritizeAccountAwareTargetSiteIds,
+} from './site-targeting';
+import {
+  inspectCartState,
   sleep,
   resolveTargetSites,
   openSiteDetails,
@@ -163,6 +169,13 @@ const sessionPreflightTelemetry: Array<{
   result: string;
   checkedAt: string;
 }> = [];
+const cartPreflightTelemetry: Array<{
+  account: string;
+  result: string;
+  siteIds: string[];
+  checkedAt: string;
+  error: string | undefined;
+}> = [];
 let requestedSitesForRun: string[] = [];
 let readyAccountsForRun: CaptureAccount[] = [];
 let allocatedAgentCountForRun = 0;
@@ -205,6 +218,14 @@ function createAgentRunSummary(agentId: number, account: CaptureAccount, preferr
     launch: null,
     candidateSites: [],
     attemptedSites: [],
+    cartSitesBefore: undefined,
+    cartSitesAfter: undefined,
+    cartConfirmationSource: null,
+    finalAttemptUrl: undefined,
+    clickedCartSelectors: [],
+    checkoutAuthEncountered: false,
+    cartVerificationError: undefined,
+    skippedSites: [],
     heldSite: null,
     error: undefined,
     artifacts: {
@@ -237,11 +258,32 @@ function getAllHolds(): HoldRecord[] {
 }
 
 function isSiteAlreadyHeld(siteId: string): boolean {
-  return globalHeldSites.has(siteId);
+  return globalHeldSites.has(siteId.toUpperCase());
 }
 
 function hasFailedBookingSite(accountKey: string, siteId: string): boolean {
   return accountBookers.get(accountKey)?.hasFailedSite(siteId) ?? false;
+}
+
+function getOtherAccountPendingSites(accountKey: string): string[] {
+  return Array.from(accountBookers.entries())
+    .filter(([otherAccountKey]) => otherAccountKey !== accountKey)
+    .flatMap(([, booker]) => booker.getPendingAssignedSites());
+}
+
+function buildAccountRunSummaries(): AccountRunSummary[] {
+  return Array.from(accountBookers.values()).map((booker) => ({
+    account: booker.account.displayName,
+    maxHolds: booker.maxHolds,
+    holds: booker.holds.map((hold) => hold.site),
+    assignedSites: Array.from(booker.assignedSites),
+    attemptedSites: Array.from(booker.attemptedSites),
+    failedSites: Array.from(booker.failedBookingSites),
+    verifiedCartSites: Array.from(booker.verifiedCartSites),
+    verifiedCartCount: booker.verifiedCartSites.size,
+    stopReason: booker.stopReason,
+    skippedSites: booker.skipEvents,
+  }));
 }
 
 function reserveAccountBookingSite(accountKey: string, siteId: string): boolean {
@@ -258,14 +300,15 @@ function shouldStopAgent(agentId: number, accountKey: string): boolean {
 }
 
 function registerHold(agentId: number, account: CaptureAccount, siteId: string, stage: SuccessStage): boolean {
+  const normalizedSite = siteId.toUpperCase();
   const booker = accountBookers.get(account.storageKey);
   if (!booker || booker.isClosed) return false;
-  if (globalHeldSites.has(siteId)) return false;
+  if (globalHeldSites.has(normalizedSite)) return false;
 
   const { registered } = booker.recordSuccess(agentId, siteId, stage);
   if (!registered) return false;
 
-  globalHeldSites.add(siteId);
+  globalHeldSites.add(normalizedSite);
   notifySuccess(siteId, agentId, stage, TARGET_DATE, LOOP);
   return true;
 }
@@ -301,6 +344,25 @@ async function registerCartFailure(agentId: number, account: CaptureAccount, sit
   }
 }
 
+async function reconcileVerifiedCartState(account: CaptureAccount): Promise<void> {
+  const booker = accountBookers.get(account.storageKey);
+  if (!booker) {
+    return;
+  }
+
+  const runtime = accountBookerRuntimes.get(account.storageKey);
+  if (!runtime) {
+    return;
+  }
+
+  const verifiedSites = Array.from(booker.verifiedCartSites);
+  const { shouldClose } = booker.recordVerifiedCartSites(verifiedSites);
+  if (shouldClose) {
+    console.log(`[${account.displayName}] Verified cart already holds ${booker.verifiedCartSites.size} site(s). Closing remaining agents for this account.`);
+    await cancelRemainingAgents(account.storageKey, -1);
+  }
+}
+
 async function cancelRemainingAgents(accountKey: string, excludeAgentId: number) {
   for (const [agentId, record] of activeContexts.entries()) {
     if (record.accountKey === accountKey && agentId !== excludeAgentId) {
@@ -326,9 +388,21 @@ function allocateAgents(accounts: CaptureAccount[], totalConcurrency: number, ta
     specs.push({
       agentId: i + 1,
       account,
-      preferredSite: targetSites[i] ?? null,
+      preferredSite: null,
       localAgentIndex,
     });
+  }
+
+  const assignedPreferredSites = assignPreferredSitesToAgents(
+    targetSites,
+    specs.map((spec) => ({
+      accountKey: spec.account.storageKey,
+      localAgentIndex: spec.localAgentIndex,
+    })),
+  );
+
+  for (const [index, spec] of specs.entries()) {
+    spec.preferredSite = assignedPreferredSites[index] ?? null;
   }
 
   return specs;
@@ -386,18 +460,6 @@ async function runAgent(spec: AgentSpec, context: BrowserContext) {
     const candidates = (await resolveTargetSites(page, TARGET_DATE, STAY_LENGTH, LOOP)).filter(
       (candidate) => SITE_ALLOWLIST.length === 0 || SITE_ALLOWLIST.includes(candidate.site.toUpperCase()),
     );
-    const orderedCandidateIds = prioritizeTargetSiteIds(
-      candidates.map((candidate) => candidate.site),
-      preferredSite,
-      localAgentIndex - 1,
-    );
-    const orderBySite = new Map(
-      orderedCandidateIds.map((siteId, index) => [siteId.toUpperCase(), index]),
-    );
-    candidates.sort(
-      (a, b) => (orderBySite.get(a.site.toUpperCase()) ?? Number.MAX_SAFE_INTEGER)
-        - (orderBySite.get(b.site.toUpperCase()) ?? Number.MAX_SAFE_INTEGER),
-    );
     agentSummary.candidateSites = candidates.map((candidate) => candidate.site);
 
     if (candidates.length === 0) {
@@ -409,16 +471,65 @@ async function runAgent(spec: AgentSpec, context: BrowserContext) {
       return;
     }
 
-    for (const selection of candidates) {
+    const candidateBySite = new Map(
+      candidates.map((candidate) => [candidate.site.toUpperCase(), candidate]),
+    );
+    const processedSites = new Set<string>();
+
+    while (processedSites.size < candidates.length) {
+      const booker = accountBookers.get(account.storageKey);
+      const runtime = accountBookerRuntimes.get(account.storageKey);
+      if (!booker || !runtime) {
+        break;
+      }
+
+      const remainingSiteIds = candidates
+        .map((candidate) => candidate.site.toUpperCase())
+        .filter((siteId) => !processedSites.has(siteId));
+      const orderedCandidateIds = prioritizeAccountAwareTargetSiteIds(remainingSiteIds, {
+        preferredSite,
+        rotationOffset: localAgentIndex - 1,
+        accountAssignedSites: Array.from(booker.assignedSites),
+        accountAttemptedSites: Array.from(booker.attemptedSites),
+        accountFailedSites: Array.from(booker.failedBookingSites),
+        accountReservedSites: Array.from(booker.bookingSitesInFlight),
+        otherAccountPendingSites: getOtherAccountPendingSites(account.storageKey),
+      });
+      const nextSiteId = orderedCandidateIds[0];
+      if (!nextSiteId) {
+        break;
+      }
+
+      processedSites.add(nextSiteId.toUpperCase());
+      const selection = candidateBySite.get(nextSiteId.toUpperCase());
+      if (!selection) {
+        continue;
+      }
+
+      if (!agentSummary.preferredSite || !agentSummary.candidateSites.includes(agentSummary.preferredSite)) {
+        agentSummary.preferredSite = selection.site;
+      }
+
       if (shouldStopAgent(agentId, account.storageKey)) {
+        booker.recordSkip(selection.site, 'account-at-cap', agentId);
+        agentSummary.skippedSites.push({ site: selection.site, reason: 'account-at-cap' });
         finishAgentRun(agentSummary, 'stopped');
         break;
       }
-      if (isSiteAlreadyHeld(selection.site)) continue;
-      if (hasFailedBookingSite(account.storageKey, selection.site)) {
-        console.log(`${label}Skipping ${selection.site}; ${account.displayName} already failed to move it into cart.`);
+      if (isSiteAlreadyHeld(selection.site)) {
+        booker.recordSkip(selection.site, 'already-held', agentId);
+        agentSummary.skippedSites.push({ site: selection.site, reason: 'already-held' });
         continue;
       }
+      if (hasFailedBookingSite(account.storageKey, selection.site)) {
+        console.log(`${label}Skipping ${selection.site}; ${account.displayName} already failed to move it into cart.`);
+        booker.recordSkip(selection.site, 'already-failed-for-account', agentId);
+        agentSummary.skippedSites.push({ site: selection.site, reason: 'already-failed-for-account' });
+        continue;
+      }
+
+      booker.markAssignedSite(selection.site);
+      booker.markAttemptedSite(selection.site);
       agentSummary.attemptedSites.push(selection.site);
 
       if (!AUTO_BOOK || DRY_RUN) {
@@ -440,16 +551,12 @@ async function runAgent(spec: AgentSpec, context: BrowserContext) {
 
       if (!reserveAccountBookingSite(account.storageKey, selection.site)) {
         console.log(`${label}Skipping ${selection.site}; another agent for ${account.displayName} is already attempting it.`);
+        booker.recordSkip(selection.site, 'already-reserved-for-account', agentId);
+        agentSummary.skippedSites.push({ site: selection.site, reason: 'already-reserved-for-account' });
         continue;
       }
 
       try {
-        const booker = accountBookers.get(account.storageKey);
-        const runtime = accountBookerRuntimes.get(account.storageKey);
-        if (!booker || !runtime) {
-          break;
-        }
-
         const queuedAhead = booker.pendingAttemptCount;
         if (queuedAhead > 0) {
           console.log(`${label}Waiting for ${queuedAhead} earlier booking attempt(s) for ${account.displayName} before trying ${selection.site}.`);
@@ -467,6 +574,21 @@ async function runAgent(spec: AgentSpec, context: BrowserContext) {
           onCartFailure: async () => {
             agentSummary.outcome = 'cart-failed';
             await registerCartFailure(agentId, account, selection.site);
+          },
+          onCartVerified: async (siteIds) => {
+            const { shouldClose } = booker.recordVerifiedCartSites(siteIds);
+            if (shouldClose) {
+              await cancelRemainingAgents(account.storageKey, agentId);
+            }
+          },
+          onCartAttemptSettled: async (result) => {
+            agentSummary.cartSitesBefore = result.cartSitesBefore;
+            agentSummary.cartSitesAfter = result.cartSitesAfter;
+            agentSummary.cartConfirmationSource = result.confirmationSource;
+            agentSummary.finalAttemptUrl = result.finalUrl;
+            agentSummary.clickedCartSelectors = result.clickedSelectors;
+            agentSummary.checkoutAuthEncountered = result.checkoutAuthEncountered;
+            agentSummary.cartVerificationError = result.verificationError;
           },
           onHoldSuccess: async () => {
             const claimed = await claimSuccess(agentId, account, selection.site, 'order-details');
@@ -494,6 +616,7 @@ async function runAgent(spec: AgentSpec, context: BrowserContext) {
         }
       } finally {
         releaseAccountBookingSite(account.storageKey, selection.site);
+        await reconcileVerifiedCartState(account);
       }
     }
     if (!agentSummary.finishedAt) {
@@ -576,6 +699,55 @@ async function launchCapture(targetSites: string[]): Promise<CaptureOutcome> {
     }
   }
 
+  if (AUTO_BOOK && !DRY_RUN) {
+    let preflightCartBlocked = false;
+    for (const account of readyAccountsForRun) {
+      const runtime = accountBookerRuntimes.get(account.storageKey);
+      if (!runtime) {
+        continue;
+      }
+
+      const cartState = await inspectCartState(
+        runtime.context,
+        `[Pre-Flight][${account.displayName}][Cart] `,
+        account.account,
+        IS_HEADED,
+        CHECKOUT_AUTH_MODE,
+      );
+      cartPreflightTelemetry.push({
+        account: account.displayName,
+        result: cartState.error ? 'error' : cartState.siteIds.length > 0 ? 'non-empty' : 'empty',
+        siteIds: cartState.siteIds,
+        checkedAt: new Date().toISOString(),
+        error: cartState.error,
+      });
+
+      if (cartState.error) {
+        preflightCartBlocked = true;
+        console.error(`[${account.displayName}] Unable to verify pre-flight cart state: ${cartState.error}`);
+        continue;
+      }
+
+      if (cartState.siteIds.length > 0) {
+        preflightCartBlocked = true;
+        console.error(
+          `[${account.displayName}] Pre-flight cart is not empty: ${cartState.siteIds.join(', ')}. Clear existing holds before running live validation.`,
+        );
+      }
+    }
+
+    if (preflightCartBlocked) {
+      for (const runtime of accountBookerRuntimes.values()) {
+        await runtime.close().catch(() => {});
+      }
+      accountBookerRuntimes.clear();
+      if (browser) {
+        await browser.close().catch(() => {});
+      }
+      return 'error';
+    }
+  }
+
   const promises: Promise<void>[] = [];
   for (const [i, spec] of agentSpecs.entries()) {
     const { agentId, account, localAgentIndex } = spec;
@@ -636,6 +808,11 @@ async function startRace(): Promise<CaptureOutcome> {
 startRace()
   .then((outcome) => {
     const runFinishedAt = Date.now();
+    for (const booker of accountBookers.values()) {
+      if (!booker.stopReason && booker.holds.length < booker.maxHolds) {
+        booker.setStopReason('candidate-exhausted');
+      }
+    }
     const holds = getAllHolds();
     const winningHold = holds[0] ?? null;
     writeRunSummary({
@@ -668,6 +845,7 @@ startRace()
       winningSite: winningHold?.site ?? null,
       status: outcome === 'success' ? 'success' : outcome,
       sessionPreflight: sessionPreflightTelemetry,
+      cartPreflight: cartPreflightTelemetry,
       availabilityCheck: availabilityTelemetry.startedAt && availabilityTelemetry.finishedAt
         ? {
             startedAt: availabilityTelemetry.startedAt,
@@ -676,6 +854,7 @@ startRace()
             allowlistApplied: availabilityTelemetry.allowlistApplied,
           }
         : undefined,
+      accounts: buildAccountRunSummaries(),
       agents: Array.from(agentRunSummaries.values()).sort((a, b) => a.agentId - b.agentId),
     });
     writeCaptureResultArtifact(outcome);
@@ -689,6 +868,11 @@ startRace()
   .catch((error) => {
     console.error(error);
     const runFinishedAt = Date.now();
+    for (const booker of accountBookers.values()) {
+      if (!booker.stopReason && booker.holds.length < booker.maxHolds) {
+        booker.setStopReason('candidate-exhausted');
+      }
+    }
     const holds = getAllHolds();
     const winningHold = holds[0] ?? null;
     writeRunSummary({
@@ -721,6 +905,7 @@ startRace()
       winningSite: winningHold?.site ?? null,
       status: 'error',
       sessionPreflight: sessionPreflightTelemetry,
+      cartPreflight: cartPreflightTelemetry,
       availabilityCheck: availabilityTelemetry.startedAt && availabilityTelemetry.finishedAt
         ? {
             startedAt: availabilityTelemetry.startedAt,
@@ -729,6 +914,7 @@ startRace()
             allowlistApplied: availabilityTelemetry.allowlistApplied,
           }
         : undefined,
+      accounts: buildAccountRunSummaries(),
       agents: Array.from(agentRunSummaries.values()).sort((a, b) => a.agentId - b.agentId),
     });
     writeCaptureResultArtifact('error');

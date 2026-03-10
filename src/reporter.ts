@@ -47,12 +47,41 @@ export interface AgentRunSummary {
   launch: AgentLaunchTelemetry | null;
   candidateSites: string[];
   attemptedSites: string[];
+  cartSitesBefore: string[] | undefined;
+  cartSitesAfter: string[] | undefined;
+  cartConfirmationSource: string | null;
+  finalAttemptUrl: string | undefined;
+  clickedCartSelectors: string[] | undefined;
+  checkoutAuthEncountered: boolean | undefined;
+  cartVerificationError: string | undefined;
+  skippedSites: Array<{
+    site: string;
+    reason: string;
+  }>;
   heldSite: string | null;
   error: string | undefined;
   artifacts: {
     successScreenshotPath: string | undefined;
     failureScreenshotPaths: string[];
   };
+}
+
+export interface AccountRunSummary {
+  account: string;
+  maxHolds: number;
+  holds: string[];
+  assignedSites: string[];
+  attemptedSites: string[];
+  failedSites: string[];
+  verifiedCartSites: string[];
+  verifiedCartCount: number;
+  stopReason: string | null;
+  skippedSites: Array<{
+    site: string;
+    reason: string;
+    agentId: number | null;
+    timestamp: string;
+  }>;
 }
 
 export interface RunSummary {
@@ -87,12 +116,20 @@ export interface RunSummary {
     result: string;
     checkedAt: string;
   }>;
+  cartPreflight?: Array<{
+    account: string;
+    result: string;
+    siteIds: string[];
+    checkedAt: string;
+    error: string | undefined;
+  }>;
   availabilityCheck: {
     startedAt: string;
     finishedAt: string;
     matchedSites: string[];
     allowlistApplied: boolean;
   } | undefined;
+  accounts: AccountRunSummary[];
   agents: AgentRunSummary[];
 }
 

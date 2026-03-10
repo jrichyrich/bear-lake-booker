@@ -29,4 +29,12 @@ describe('checkout auth helpers', () => {
       title: 'My Account',
     })).toBe(false);
   });
+
+  test('does not misclassify an authenticated shopping cart page that keeps the sign-in url', () => {
+    expect(looksLikeCheckoutLoginPage({
+      bodyText: 'Sign In / Sign Up My Account My Reservations Shopping Cart This Shopping Cart is empty',
+      url: 'https://utahstateparks.reserveamerica.com/memberSignInSignUp.do',
+      title: 'Shopping Cart - Utah State Parks',
+    })).toBe(false);
+  });
 });

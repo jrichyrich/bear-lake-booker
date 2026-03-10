@@ -1,4 +1,10 @@
-import { filterTargetSiteIds, getInitialTargetSites, prioritizeTargetSiteIds } from '../src/site-targeting';
+import {
+  assignPreferredSitesToAgents,
+  filterTargetSiteIds,
+  getInitialTargetSites,
+  prioritizeAccountAwareTargetSiteIds,
+  prioritizeTargetSiteIds,
+} from '../src/site-targeting';
 
 describe('site targeting helpers', () => {
   test('filters discovered sites against the allowlist', () => {
@@ -27,5 +33,49 @@ describe('site targeting helpers', () => {
 
   test('deduplicates site ids case-insensitively before prioritizing', () => {
     expect(prioritizeTargetSiteIds(['bc85', 'BC85', 'BC86'], null, 0)).toEqual(['bc85', 'BC86']);
+  });
+
+  test('assigns distinct preferred sites when enough targets exist for all agents', () => {
+    expect(assignPreferredSitesToAgents(
+      ['BH04', 'BH07', 'BH08', 'BH09', 'BH11', 'BH03'],
+      [
+        { accountKey: 'lisa', localAgentIndex: 1 },
+        { accountKey: 'jason', localAgentIndex: 1 },
+        { accountKey: 'lisa', localAgentIndex: 2 },
+        { accountKey: 'jason', localAgentIndex: 2 },
+        { accountKey: 'lisa', localAgentIndex: 3 },
+        { accountKey: 'jason', localAgentIndex: 3 },
+      ],
+    )).toEqual(['BH04', 'BH07', 'BH08', 'BH09', 'BH11', 'BH03']);
+  });
+
+  test('prefers unused distinct sites before other-account pending or same-account assigned sites', () => {
+    expect(prioritizeAccountAwareTargetSiteIds(
+      ['BH03', 'BH04', 'BH07', 'BH08', 'BH09', 'BH11'],
+      {
+        preferredSite: null,
+        rotationOffset: 0,
+        accountAssignedSites: ['BH03', 'BH08'],
+        accountAttemptedSites: [],
+        accountFailedSites: [],
+        accountReservedSites: [],
+        otherAccountPendingSites: ['BH11'],
+      },
+    )).toEqual(['BH04', 'BH07', 'BH09', 'BH11', 'BH03', 'BH08']);
+  });
+
+  test('pushes failed or already-attempted sites to the end for later same-account holds', () => {
+    expect(prioritizeAccountAwareTargetSiteIds(
+      ['BH03', 'BH04', 'BH07', 'BH08'],
+      {
+        preferredSite: 'BH03',
+        rotationOffset: 0,
+        accountAssignedSites: ['BH03'],
+        accountAttemptedSites: ['BH04'],
+        accountFailedSites: ['BH08'],
+        accountReservedSites: [],
+        otherAccountPendingSites: [],
+      },
+    )).toEqual(['BH03', 'BH07', 'BH04', 'BH08']);
   });
 });
