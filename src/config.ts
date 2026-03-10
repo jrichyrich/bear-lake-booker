@@ -2,7 +2,6 @@ export const PARK_URL = 'https://utahstateparks.reserveamerica.com/camping/bear-
 export const SESSION_DIR = '.sessions';
 export const SESSION_FILE = 'session.json';
 export const SITE_DETAILS_URL_BASE = 'https://utahstateparks.reserveamerica.com/camping/bear-lake-state-park/r/campgroundDetails.do';
-export const RECIPIENT = 'richards_jason@me.com';
 export const DEFAULT_ACCOUNT = 'lisarichards1984@gmail.com';
 
 export const USER_AGENTS = [

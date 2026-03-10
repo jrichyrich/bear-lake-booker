@@ -11,6 +11,7 @@
     "setup-keychain": "tsx src/setup-keychain.ts",
     "view-cart": "tsx src/view-cart.ts",
     "flow": "tsx src/flow.ts",
+    "release": "tsx src/release.ts",
     "checkout": "tsx src/view-cart.ts --accounts lisarichards1984,jrichards1981",
     "display-holds": "tsx src/view-cart.ts",
     "test-session": "tsx scripts/test_session.ts",

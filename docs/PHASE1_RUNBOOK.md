@@ -37,6 +37,12 @@ Use this flow for all live runs:
    `npm run view-cart -- --accounts lisa@gmail.com,jason@gmail.com`
 7. Complete payment manually before the hold expires.
 
+For release-window rehearsals, prefer the wrapper:
+
+`npm run release -- --launchTime 07:59:59 -d MM/DD/YYYY -l 3 -o BIRCH -c 6 --book --accounts lisa@gmail.com,jason@gmail.com --headed --checkoutAuthMode manual --notificationProfile test`
+
+The wrapper validates sessions, checks that carts are empty, freezes the target site set shortly before launch, and then starts `race.ts`.
+
 ## Safe Defaults
 Use these defaults unless there is a reason not to:
 
@@ -56,6 +62,7 @@ These limits are now validated enough to use as the Phase 1 baseline:
 - expect pre-flight session renewal to be common, even with recently saved `.sessions/session-*.json` files
 - use `npm run view-cart -- --accounts ...` immediately after a successful run so each winning account cart is visible for manual checkout
 - treat manual checkout as the hard automation boundary; the script can secure cart holds, but payment and any post-cart CAPTCHA remain operator work
+- if `.sessions/notification-recipients.json` is configured, expect one end-of-run iMessage inventory summary with held sites and site-details links sent to the selected `test` or `production` recipient profile
 
 ## Phase 1 Validation Matrix
 These are the four scenarios that should be exercised and documented before Phase 1 is considered complete.

@@ -1,12 +1,110 @@
 import { spawn } from 'child_process';
-import { RECIPIENT } from './config';
+import * as fs from 'fs';
+import * as path from 'path';
+import { SESSION_DIR } from './config';
+import { type RunSummary } from './reporter';
 
 export type SuccessStage = 'site-details' | 'order-details' | 'monitoring';
+export type NotificationProfile = 'test' | 'production';
 
 interface NotificationContent {
   title: string;
   message: string;
   agentLabel: string;
+}
+
+type AppleScriptLine = string;
+
+type NotificationRecipientsConfig = {
+  test?: {
+    imessageRecipients?: string[];
+  };
+  production?: {
+    imessageRecipients?: string[];
+  };
+};
+
+const NOTIFICATION_RECIPIENTS_PATH = path.resolve(process.cwd(), SESSION_DIR, 'notification-recipients.json');
+
+function escapeAppleScriptLine(value: string): string {
+  return `"${value.replace(/["\\]/g, '')}"`;
+}
+
+function toAppleScriptString(value: string): string {
+  const lines = value.split('\n');
+  if (lines.length === 0) {
+    return '""';
+  }
+
+  return lines.map((line) => escapeAppleScriptLine(line)).join(' & return & ');
+}
+
+function sanitizeDesktopNotificationMessage(value: string): string {
+  return value.replace(/["\\]/g, '').replace(/\s+/g, ' ').trim();
+}
+
+export function normalizeNotificationProfile(value: string | undefined): NotificationProfile {
+  return value === 'production' ? 'production' : 'test';
+}
+
+export function normalizeIMessageRecipient(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return '';
+  }
+
+  if (trimmed.includes('@')) {
+    return trimmed;
+  }
+
+  const digits = trimmed.replace(/\D/g, '');
+  if (digits.length === 10) {
+    return `+1${digits}`;
+  }
+  if (digits.length === 11 && digits.startsWith('1')) {
+    return `+${digits}`;
+  }
+  if (trimmed.startsWith('+')) {
+    return `+${trimmed.slice(1).replace(/\D/g, '')}`;
+  }
+
+  return trimmed;
+}
+
+export function buildIMessageAppleScript(message: string, recipient: string): AppleScriptLine[] {
+  return [
+    'tell application "Messages"',
+    'set targetService to first service whose service type = iMessage',
+    `set targetParticipant to participant "${recipient.replace(/["\\]/g, '')}" of targetService`,
+    `send ${toAppleScriptString(message)} to targetParticipant`,
+    'end tell',
+  ];
+}
+
+export function loadIMessageRecipients(
+  profile: NotificationProfile,
+  configPath = NOTIFICATION_RECIPIENTS_PATH,
+): string[] {
+  if (!fs.existsSync(configPath)) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(fs.readFileSync(configPath, 'utf-8')) as NotificationRecipientsConfig;
+    const recipients = parsed[profile]?.imessageRecipients ?? [];
+    const dedupedRecipients = Array.from(
+      new Set(recipients.map((recipient) => normalizeIMessageRecipient(recipient)).filter(Boolean)),
+    );
+    if (dedupedRecipients.length === 0) {
+      console.warn(`No iMessage recipients configured for profile "${profile}" in ${configPath}.`);
+    }
+    return Array.from(
+      dedupedRecipients,
+    );
+  } catch (error) {
+    console.warn(`Failed to read iMessage recipient config at ${configPath}: ${error}`);
+    return [];
+  }
 }
 
 /**
@@ -39,15 +137,43 @@ function formatContent(
   };
 }
 
+export function buildFinalInventorySummary(summary: RunSummary): NotificationContent | null {
+  if (summary.holds.length === 0) {
+    return null;
+  }
+
+  const lines: string[] = [
+    `Bear Lake Booker inventory for ${summary.targetDate}`,
+    `Loop: ${summary.loop}`,
+    `Stay length: ${summary.stayLength} night(s)`,
+  ];
+
+  for (const account of summary.accounts) {
+    if (account.holdDetails.length === 0) {
+      continue;
+    }
+    lines.push(`${account.account}:`);
+    for (const hold of account.holdDetails) {
+      lines.push(`- ${hold.site}: ${hold.detailsUrl ?? 'link unavailable'}`);
+    }
+  }
+
+  lines.push('Manual checkout is still required before the holds expire.');
+
+  return {
+    title: 'Bear Lake Booker: INVENTORY',
+    message: lines.join('\n'),
+    agentLabel: '',
+  };
+}
+
 /**
  * Sends a macOS desktop notification asynchronously.
  */
 function sendDesktopNotification(content: NotificationContent) {
-  // Sanitize message for AppleScript double-quote enclosure
-  const sanitized = content.message.replace(/["\\]/g, ''); 
-  
+  const sanitized = sanitizeDesktopNotificationMessage(content.message);
   const process = spawn('osascript', [
-    '-e', 
+    '-e',
     `display notification "${sanitized}" with title "${content.title}" sound name "Glass"`
   ]);
 
@@ -56,28 +182,39 @@ function sendDesktopNotification(content: NotificationContent) {
   });
 }
 
-/**
- * Sends an iMessage asynchronously.
- */
-function sendIMessage(content: NotificationContent) {
-  const sanitized = content.message.replace(/["\\]/g, '');
+function sendIMessageToRecipients(content: NotificationContent, recipients: string[]) {
+  for (const recipient of recipients) {
+    const scriptLines = buildIMessageAppleScript(content.message, recipient);
+    const process = spawn(
+      'osascript',
+      scriptLines.flatMap((line) => ['-e', line]),
+    );
+    let stderr = '';
+    let stdout = '';
 
-  const process = spawn('osascript', [
-    '-e', 
-    `tell application "Messages" to send "${sanitized}" to buddy "${RECIPIENT}"`
-  ]);
+    process.on('error', () => {
+      console.warn(`${content.agentLabel}iMessage failed to spawn for ${recipient}.`);
+    });
 
-  process.on('error', () => {
-    console.warn(`${content.agentLabel}iMessage failed to spawn.`);
-  });
+    process.stderr.on('data', (chunk) => {
+      stderr += chunk.toString();
+    });
 
-  process.on('exit', (code) => {
-    if (code === 0) {
-      console.log(`${content.agentLabel}iMessage sent to ${RECIPIENT}`);
-    } else {
-      console.warn(`${content.agentLabel}iMessage failed with exit code ${code}.`);
-    }
-  });
+    process.stdout.on('data', (chunk) => {
+      stdout += chunk.toString();
+    });
+
+    process.on('exit', (code) => {
+      if (code === 0) {
+        console.log(`${content.agentLabel}iMessage sent to ${recipient}`);
+      } else {
+        const details = stderr.trim() || stdout.trim();
+        console.warn(
+          `${content.agentLabel}iMessage failed for ${recipient} with exit code ${code}.${details ? ` ${details}` : ''}`,
+        );
+      }
+    });
+  }
 }
 
 /**
@@ -92,13 +229,23 @@ export function notifySuccess(
   stayLength?: string
 ) {
   const content = formatContent(siteId, agentId, stage, targetDate, loop, stayLength);
-  
-  // 1. Console Log
+
   console.log(`\n${content.agentLabel}${content.message}`);
-
-  // 2. Desktop Notification
   sendDesktopNotification(content);
+}
 
-  // 3. iMessage
-  sendIMessage(content);
+export function notifyFinalInventorySummary(summary: RunSummary, profile: NotificationProfile): void {
+  const recipients = loadIMessageRecipients(profile);
+  if (recipients.length === 0) {
+    console.log(`No iMessage recipients configured for profile "${profile}"; skipping final inventory summary.`);
+    return;
+  }
+
+  const content = buildFinalInventorySummary(summary);
+  if (!content) {
+    return;
+  }
+
+  console.log('\nDispatching final inventory summary via iMessage...');
+  sendIMessageToRecipients(content, recipients);
 }

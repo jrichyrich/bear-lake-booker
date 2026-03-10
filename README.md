@@ -14,6 +14,7 @@ Bear Lake Booker is a TypeScript CLI for monitoring Bear Lake State Park availab
 ## Main Entry Points
 - `src/index.ts`: low-overhead monitoring.
 - `src/race.ts`: hybrid and scheduled capture.
+- `src/release.ts`: release/rehearsal wrapper that freezes targets and starts `race.ts` at an arbitrary launch time.
 - `src/auth.ts`: manual login and session file creation/renewal.
 - `src/view-cart.ts`: open shopping carts for one or more accounts after a hold.
 - `src/inspect.ts`: inspect ReserveAmerica traffic when the flow changes.
@@ -43,6 +44,21 @@ Examples:
 
 `race.ts` and `view-cart.ts` can validate and renew sessions when needed, but the operationally safe pattern is still to authenticate before a live run.
 
+Optional iMessage recipients live in `.sessions/notification-recipients.json`:
+
+```json
+{
+  "test": {
+    "imessageRecipients": ["+18015551212"]
+  },
+  "production": {
+    "imessageRecipients": ["+18015559876", "+18015557654"]
+  }
+}
+```
+
+If present, `race.ts` sends one end-of-run inventory summary to each configured recipient in the selected profile when at least one hold is secured. Rehearsals should use `--notificationProfile test`; live release runs should use `--notificationProfile production`.
+
 ## Common Commands
 ### Monitoring
 - Standard check: `npm start -- -d 08/15/2026 -l 3 -o BIRCH`
@@ -51,7 +67,8 @@ Examples:
 ### Capture
 - Hybrid dry run: `npm run race -- -d 08/15/2026 -l 3 -o BIRCH -m 5 -c 2 --dryRun --headed`
 - Hybrid live hold attempt: `npm run race -- -d 08/15/2026 -l 3 -o BIRCH -m 5 -c 4 --book`
-- Scheduled race with targeted sites: `npm run race -- -d 08/15/2026 -l 3 -o BIRCH -c 10 -t 07:59:59 --sites BH09,BH11 --book`
+- Scheduled race with targeted sites: `npm run race -- -d 08/15/2026 -l 3 -o BIRCH -c 10 -t 07:59:59 --sites BH09,BH11 --book --notificationProfile production`
+- Release/rehearsal wrapper: `npm run release -- --launchTime 07:59:59 -d 08/15/2026 -l 3 -o BIRCH -c 6 --book --accounts lisa@gmail.com,jason@gmail.com --headed --checkoutAuthMode manual --notificationProfile test`
 - Multi-account run: `npm run race -- -d 08/15/2026 -l 3 -o BIRCH -c 4 --book --accounts lisa@gmail.com,jason@gmail.com`
 - Multi-hold mode: `npm run race -- -d 08/15/2026 -l 3 -o BIRCH -c 4 --book --bookingMode multi --maxHolds 2 --accounts lisa@gmail.com,jason@gmail.com`
 
@@ -76,6 +93,13 @@ Examples:
 - `--sites <csv>`: restrict capture to explicit site IDs.
 - `--headed`: run visible browsers for debugging or manual intervention.
 - `--checkoutAuthMode auto|manual`: choose how checkout re-auth is handled.
+- `--notificationProfile test|production`: choose which iMessage recipient profile gets the final inventory summary.
+
+`src/release.ts` adds wrapper-only scheduling flags:
+
+- `--launchTime <HH:MM:SS>`: required launch time for today.
+- `--scoutLeadMinutes <mins>`: when to freeze the scout target set before launch.
+- `--warmupLeadSeconds <secs>`: when to start `race.ts` warm-up before launch.
 
 ## Safe Boundary
 The automation boundary is still intentional: Bear Lake Booker can reach the shopping cart hold state, but it does not complete checkout or payment. ReserveAmerica may still require a CAPTCHA or checkout login during capture, so the live workflow is:
@@ -84,6 +108,8 @@ The automation boundary is still intentional: Bear Lake Booker can reach the sho
 2. Run monitoring or `npm run race`.
 3. If a hold lands, open the cart with `npm run view-cart`.
 4. Complete checkout manually before the hold expires.
+
+For `npm run release`, the wrapper also requires empty carts before launch, scouts or freezes the target site list, and then starts `race.ts` with the resolved `--time` and `--sites`.
 
 ## Roadmap
 The main unfinished work is tracked in:

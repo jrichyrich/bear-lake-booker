@@ -1,9 +1,10 @@
 import { execFileSync } from 'child_process';
-import { RECIPIENT } from './config';
+import { buildIMessageAppleScript, normalizeIMessageRecipient } from './notify';
 
 const TARGET_DATE = "07/22/2026";
 const STAY_LENGTH = "6";
 const LOOP = "BIRCH";
+const RECIPIENT = normalizeIMessageRecipient(process.env.TEST_IMESSAGE_RECIPIENT ?? '');
 
 /**
  * TEST VERSION of notifySuccess
@@ -24,11 +25,15 @@ function notifySuccess(count: number) {
   }
 
   // 2. iMessage
-  try {
-    execFileSync('osascript', ['-e', `tell application "Messages" to send "${escapedMsg}" to buddy "${RECIPIENT}"`]);
-    console.log(`📩 iMessage test sent to ${RECIPIENT}`);
-  } catch (e) {
-    console.warn("⚠️ Failed to send iMessage. Ensure Messages.app is signed in.");
+  if (!RECIPIENT) {
+    console.warn("⚠️ TEST_IMESSAGE_RECIPIENT is not set. Skipping iMessage test.");
+  } else {
+    try {
+      execFileSync('osascript', buildIMessageAppleScript(message, RECIPIENT).flatMap((line) => ['-e', line]));
+      console.log(`📩 iMessage test sent to ${RECIPIENT}`);
+    } catch (e) {
+      console.warn(`⚠️ Failed to send iMessage. ${e instanceof Error ? e.message : 'Ensure Messages.app is signed in.'}`);
+    }
   }
 }
 

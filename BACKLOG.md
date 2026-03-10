@@ -19,6 +19,7 @@
 - [ ] Tighten launch timing and warm-up behavior around the 8:00 AM release event.
 - [ ] Improve target-site allowlisting and prioritization for the release window.
 - [ ] Convert the proven six-hold coordination path into a repeatable release-window rehearsal with fresh scout output and empty-cart preflight.
+- [ ] Add configurable end-of-run inventory iMessages with separate `test` and `production` recipient profiles so the party receives the final held-site list plus direct site-details links before checkout.
 
 ### Phase 3: Operational Hardening
 - [ ] Add cross-platform push notifications (`ntfy.sh`, Pushover, or Twilio) for hold secured and manual action required events.

@@ -8,10 +8,15 @@ import { parseArgs } from 'util';
 import * as fs from 'fs';
 import { searchAvailability, type SiteAvailability } from './reserveamerica';
 import { USER_AGENTS } from './config';
-import { notifySuccess, type SuccessStage } from './notify';
+import {
+  normalizeNotificationProfile,
+  notifyFinalInventorySummary,
+  notifySuccess,
+  type SuccessStage,
+} from './notify';
 import { AccountBooker, type CaptureAccount, type HoldRecord } from './account-booker';
 import { AccountBookerRuntime } from './account-booker-runtime';
-import { type AccountRunSummary, type AgentRunSummary, writeRunSummary } from './reporter';
+import { type AccountRunSummary, type AgentRunSummary, type RunSummary, writeRunSummary } from './reporter';
 import { CAPTURE_EXIT_CODES, type CaptureResultArtifact, captureOutcomeToExitCode, type CaptureOutcome } from './flow-contract';
 import { getAccountDisplayName, getAccountStorageKey, getReadableSessionPath, normalizeCliAccounts, sessionExists } from './session-utils';
 import { executeLaunchStrategy, parseLaunchMode } from './launch-strategy';
@@ -51,6 +56,7 @@ const { values } = parseArgs({
     sequential: { type: 'boolean', default: false },
     sites: { type: 'string' },
     accounts: { type: 'string' },
+    notificationProfile: { type: 'string', default: 'test' },
     checkoutAuthMode: { type: 'string' },
     launchMode: { type: 'string', default: 'preload' },
     help: { type: 'boolean', short: 'h' },
@@ -83,6 +89,7 @@ Options:
   --sequential                  Book sites one at a time in a single browser
   --sites <csv>                 Target specific sites (e.g., BH03,BH07,BH09)
   --accounts <csv>              Capture into multiple authenticated account emails
+  --notificationProfile <name>  test or production [default: test]
   --checkoutAuthMode <mode>     auto or manual [default: manual when headed, else auto]
   --launchMode <mode>           preload, refresh, or fresh-page [default: preload]
   -h, --help                    Show help
@@ -102,6 +109,7 @@ const IS_HEADED = values.headed!;
 const BOOKING_MODE = (values.bookingMode === 'multi' ? 'multi' : 'single') as 'single' | 'multi';
 const MAX_HOLDS = parseInt(values.maxHolds!, 10);
 const PROFILE_MODE = values.profileMode!;
+const NOTIFICATION_PROFILE = normalizeNotificationProfile(values.notificationProfile as string | undefined);
 const PROFILE_DIR = values.profileDir!;
 const RESET_PROFILES = values.resetProfiles!;
 const SCREENSHOT_ON_WIN = values.screenshotOnWin!;
@@ -276,6 +284,7 @@ function buildAccountRunSummaries(): AccountRunSummary[] {
     account: booker.account.displayName,
     maxHolds: booker.maxHolds,
     holds: booker.holds.map((hold) => hold.site),
+    holdDetails: booker.holds,
     assignedSites: Array.from(booker.assignedSites),
     attemptedSites: Array.from(booker.attemptedSites),
     failedSites: Array.from(booker.failedBookingSites),
@@ -299,13 +308,19 @@ function shouldStopAgent(agentId: number, accountKey: string): boolean {
   return booker ? !booker.canAgentContinue(agentId) : false;
 }
 
-function registerHold(agentId: number, account: CaptureAccount, siteId: string, stage: SuccessStage): boolean {
+function registerHold(
+  agentId: number,
+  account: CaptureAccount,
+  siteId: string,
+  stage: SuccessStage,
+  detailsUrl?: string,
+): boolean {
   const normalizedSite = siteId.toUpperCase();
   const booker = accountBookers.get(account.storageKey);
   if (!booker || booker.isClosed) return false;
   if (globalHeldSites.has(normalizedSite)) return false;
 
-  const { registered } = booker.recordSuccess(agentId, siteId, stage);
+  const { registered } = booker.recordSuccess(agentId, siteId, stage, detailsUrl);
   if (!registered) return false;
 
   globalHeldSites.add(normalizedSite);
@@ -313,13 +328,19 @@ function registerHold(agentId: number, account: CaptureAccount, siteId: string, 
   return true;
 }
 
-async function claimSuccess(agentId: number, account: CaptureAccount, siteId: string, stage: SuccessStage): Promise<boolean> {
+async function claimSuccess(
+  agentId: number,
+  account: CaptureAccount,
+  siteId: string,
+  stage: SuccessStage,
+  detailsUrl?: string,
+): Promise<boolean> {
   const booker = accountBookers.get(account.storageKey);
   if (!booker) {
     return false;
   }
 
-  const registered = registerHold(agentId, account, siteId, stage);
+  const registered = registerHold(agentId, account, siteId, stage, detailsUrl);
   if (!registered) return false;
 
   if (booker.isClosed && booker.holds.length >= booker.maxHolds) {
@@ -535,7 +556,7 @@ async function runAgent(spec: AgentSpec, context: BrowserContext) {
       if (!AUTO_BOOK || DRY_RUN) {
         if (await openSiteDetails(page, selection)) {
           if (isSiteAlreadyHeld(selection.site)) continue;
-          await claimSuccess(agentId, account, selection.site, 'site-details');
+          await claimSuccess(agentId, account, selection.site, 'site-details', selection.detailsUrl);
           agentSummary.heldSite = selection.site;
           finishAgentRun(agentSummary, 'site-details-held');
           if (SCREENSHOT_ON_WIN) {
@@ -591,7 +612,7 @@ async function runAgent(spec: AgentSpec, context: BrowserContext) {
             agentSummary.cartVerificationError = result.verificationError;
           },
           onHoldSuccess: async () => {
-            const claimed = await claimSuccess(agentId, account, selection.site, 'order-details');
+            const claimed = await claimSuccess(agentId, account, selection.site, 'order-details', selection.detailsUrl);
             if (claimed) {
               agentSummary.heldSite = selection.site;
               finishAgentRun(agentSummary, 'order-details-held');
@@ -815,12 +836,13 @@ startRace()
     }
     const holds = getAllHolds();
     const winningHold = holds[0] ?? null;
-    writeRunSummary({
+    const summary: RunSummary = {
       timestamp: new Date(runFinishedAt).toISOString(),
       runStartedAt: new Date(RUN_STARTED_AT).toISOString(),
       runFinishedAt: new Date(runFinishedAt).toISOString(),
       durationMs: runFinishedAt - RUN_STARTED_AT,
       targetDate: TARGET_DATE,
+      stayLength: STAY_LENGTH,
       loop: LOOP,
       targetTime: TARGET_TIME ?? undefined,
       monitorIntervalMins: MONITOR_INTERVAL_MINS,
@@ -830,6 +852,7 @@ startRace()
       dryRun: DRY_RUN,
       headed: IS_HEADED,
       profileMode: PROFILE_MODE,
+      notificationProfile: NOTIFICATION_PROFILE,
       accountsConfigured: configuredAccounts.map((account) => account.displayName),
       accountsReady: readyAccountsForRun.map((account) => account.displayName),
       accountsWithHolds: Array.from(accountBookers.values())
@@ -856,7 +879,11 @@ startRace()
         : undefined,
       accounts: buildAccountRunSummaries(),
       agents: Array.from(agentRunSummaries.values()).sort((a, b) => a.agentId - b.agentId),
-    });
+    };
+    writeRunSummary(summary);
+    if (summary.holds.length > 0) {
+      notifyFinalInventorySummary(summary, NOTIFICATION_PROFILE);
+    }
     writeCaptureResultArtifact(outcome);
     process.exitCode = captureOutcomeToExitCode(outcome);
     if (outcome === 'no-availability') {
@@ -875,12 +902,13 @@ startRace()
     }
     const holds = getAllHolds();
     const winningHold = holds[0] ?? null;
-    writeRunSummary({
+    const summary: RunSummary = {
       timestamp: new Date(runFinishedAt).toISOString(),
       runStartedAt: new Date(RUN_STARTED_AT).toISOString(),
       runFinishedAt: new Date(runFinishedAt).toISOString(),
       durationMs: runFinishedAt - RUN_STARTED_AT,
       targetDate: TARGET_DATE,
+      stayLength: STAY_LENGTH,
       loop: LOOP,
       targetTime: TARGET_TIME ?? undefined,
       monitorIntervalMins: MONITOR_INTERVAL_MINS,
@@ -890,6 +918,7 @@ startRace()
       dryRun: DRY_RUN,
       headed: IS_HEADED,
       profileMode: PROFILE_MODE,
+      notificationProfile: NOTIFICATION_PROFILE,
       accountsConfigured: configuredAccounts.map((account) => account.displayName),
       accountsReady: readyAccountsForRun.map((account) => account.displayName),
       accountsWithHolds: Array.from(accountBookers.values())
@@ -916,7 +945,11 @@ startRace()
         : undefined,
       accounts: buildAccountRunSummaries(),
       agents: Array.from(agentRunSummaries.values()).sort((a, b) => a.agentId - b.agentId),
-    });
+    };
+    writeRunSummary(summary);
+    if (summary.holds.length > 0) {
+      notifyFinalInventorySummary(summary, NOTIFICATION_PROFILE);
+    }
     writeCaptureResultArtifact('error');
     process.exitCode = CAPTURE_EXIT_CODES.error;
   });

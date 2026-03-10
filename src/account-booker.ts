@@ -14,6 +14,7 @@ export type HoldRecord = {
   site: string;
   stage: SuccessStage;
   timestamp: string;
+  detailsUrl: string | undefined;
 };
 
 export type AccountStopReason =
@@ -158,7 +159,12 @@ export class AccountBooker {
     return this.bookingQueue.pendingCount;
   }
 
-  recordSuccess(agentId: number, siteId: string, stage: SuccessStage): { registered: boolean; shouldClose: boolean } {
+  recordSuccess(
+    agentId: number,
+    siteId: string,
+    stage: SuccessStage,
+    detailsUrl?: string,
+  ): { registered: boolean; shouldClose: boolean } {
     if (this.isClosed || this.hasHold(siteId)) {
       return { registered: false, shouldClose: false };
     }
@@ -169,6 +175,7 @@ export class AccountBooker {
       site: siteId,
       stage,
       timestamp: new Date().toISOString(),
+      detailsUrl,
     });
 
     if (stage === 'order-details') {

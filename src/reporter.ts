@@ -7,6 +7,7 @@ export interface HoldRecord {
   site: string;
   stage: string;
   timestamp: string;
+  detailsUrl: string | undefined;
 }
 
 export interface AgentLaunchTelemetry {
@@ -70,6 +71,7 @@ export interface AccountRunSummary {
   account: string;
   maxHolds: number;
   holds: string[];
+  holdDetails: HoldRecord[];
   assignedSites: string[];
   attemptedSites: string[];
   failedSites: string[];
@@ -90,6 +92,7 @@ export interface RunSummary {
   runFinishedAt: string;
   durationMs: number;
   targetDate: string;
+  stayLength: string;
   loop: string;
   targetTime: string | undefined;
   monitorIntervalMins: number | null;
@@ -99,6 +102,7 @@ export interface RunSummary {
   dryRun: boolean;
   headed: boolean;
   profileMode: string;
+  notificationProfile: 'test' | 'production';
   accountsConfigured: string[];
   accountsReady: string[];
   accountsWithHolds: string[];
