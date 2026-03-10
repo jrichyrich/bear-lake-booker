@@ -1,4 +1,4 @@
-import { filterTargetSiteIds, getInitialTargetSites } from '../src/site-targeting';
+import { filterTargetSiteIds, getInitialTargetSites, prioritizeTargetSiteIds } from '../src/site-targeting';
 
 describe('site targeting helpers', () => {
   test('filters discovered sites against the allowlist', () => {
@@ -15,5 +15,17 @@ describe('site targeting helpers', () => {
 
   test('does not seed untimed launches with requested target sites', () => {
     expect(getInitialTargetSites(undefined, ['BH09', 'BH11'])).toEqual([]);
+  });
+
+  test('rotates site order for later agents when there is no preferred site', () => {
+    expect(prioritizeTargetSiteIds(['BC85', 'BC86', 'BC87'], null, 1)).toEqual(['BC86', 'BC87', 'BC85']);
+  });
+
+  test('keeps the preferred site first while rotating the remaining sites', () => {
+    expect(prioritizeTargetSiteIds(['BC85', 'BC86', 'BC87', 'BC88'], 'BC87', 1)).toEqual(['BC87', 'BC86', 'BC88', 'BC85']);
+  });
+
+  test('deduplicates site ids case-insensitively before prioritizing', () => {
+    expect(prioritizeTargetSiteIds(['bc85', 'BC85', 'BC86'], null, 0)).toEqual(['bc85', 'BC86']);
   });
 });

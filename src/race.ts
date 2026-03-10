@@ -16,7 +16,7 @@ import { CAPTURE_EXIT_CODES, type CaptureResultArtifact, captureOutcomeToExitCod
 import { getAccountDisplayName, getAccountStorageKey, getReadableSessionPath, normalizeCliAccounts, sessionExists } from './session-utils';
 import { executeLaunchStrategy, parseLaunchMode } from './launch-strategy';
 import { ensureActiveSession } from './session-manager';
-import { filterTargetSiteIds, getInitialTargetSites } from './site-targeting';
+import { filterTargetSiteIds, getInitialTargetSites, prioritizeTargetSiteIds } from './site-targeting';
 import {
   sleep,
   resolveTargetSites,
@@ -384,8 +384,19 @@ async function runAgent(spec: AgentSpec, context: BrowserContext) {
     const candidates = (await resolveTargetSites(page, TARGET_DATE, STAY_LENGTH)).filter(
       (candidate) => SITE_ALLOWLIST.length === 0 || SITE_ALLOWLIST.includes(candidate.site.toUpperCase()),
     );
+    const orderedCandidateIds = prioritizeTargetSiteIds(
+      candidates.map((candidate) => candidate.site),
+      preferredSite,
+      localAgentIndex - 1,
+    );
+    const orderBySite = new Map(
+      orderedCandidateIds.map((siteId, index) => [siteId.toUpperCase(), index]),
+    );
+    candidates.sort(
+      (a, b) => (orderBySite.get(a.site.toUpperCase()) ?? Number.MAX_SAFE_INTEGER)
+        - (orderBySite.get(b.site.toUpperCase()) ?? Number.MAX_SAFE_INTEGER),
+    );
     agentSummary.candidateSites = candidates.map((candidate) => candidate.site);
-    if (preferredSite) candidates.sort((a) => (a.site === preferredSite ? -1 : 1));
 
     if (candidates.length === 0) {
       finishAgentRun(agentSummary, 'no-candidates');
