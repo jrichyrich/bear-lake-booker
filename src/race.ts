@@ -22,6 +22,7 @@ import {
   resolveTargetSites,
   openSiteDetails,
   injectSession,
+  saveSearchResultsDebugArtifacts,
 } from './automation';
 
 const { values } = parseArgs({
@@ -165,6 +166,7 @@ const sessionPreflightTelemetry: Array<{
 let requestedSitesForRun: string[] = [];
 let readyAccountsForRun: CaptureAccount[] = [];
 let allocatedAgentCountForRun = 0;
+const searchResultsDebugDumpedAccounts = new Set<string>();
 
 function buildCaptureResultArtifact(outcome: CaptureOutcome): CaptureResultArtifact {
   return {
@@ -381,7 +383,7 @@ async function runAgent(spec: AgentSpec, context: BrowserContext) {
     page = launchResult.page;
     agentSummary.launch = launchResult.telemetry;
 
-    const candidates = (await resolveTargetSites(page, TARGET_DATE, STAY_LENGTH)).filter(
+    const candidates = (await resolveTargetSites(page, TARGET_DATE, STAY_LENGTH, LOOP)).filter(
       (candidate) => SITE_ALLOWLIST.length === 0 || SITE_ALLOWLIST.includes(candidate.site.toUpperCase()),
     );
     const orderedCandidateIds = prioritizeTargetSiteIds(
@@ -399,6 +401,10 @@ async function runAgent(spec: AgentSpec, context: BrowserContext) {
     agentSummary.candidateSites = candidates.map((candidate) => candidate.site);
 
     if (candidates.length === 0) {
+      if (!searchResultsDebugDumpedAccounts.has(account.storageKey)) {
+        searchResultsDebugDumpedAccounts.add(account.storageKey);
+        await saveSearchResultsDebugArtifacts(page, `debug-search-results-${account.storageKey}`, label);
+      }
       finishAgentRun(agentSummary, 'no-candidates');
       return;
     }

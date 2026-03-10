@@ -12,6 +12,22 @@ export type SiteSelection = {
   actionText: string;
 };
 
+export type SearchResultRowDebug = {
+  site: string;
+  loop: string;
+  actionText: string;
+  leadingStatuses: string[];
+};
+
+type SearchResultsDebugArtifact = {
+  pageUrl: string;
+  selectedLoopValue: string;
+  selectedLoopLabel: string;
+  campingDate: string;
+  lengthOfStay: string;
+  rows: SearchResultRowDebug[];
+};
+
 export type CheckoutAuthMode = 'auto' | 'manual';
 
 const MAX_RETRIES = 3;
@@ -21,6 +37,26 @@ const BOOKABLE_STATUS_CODES = new Set(['A', 'B']);
 
 export async function sleep(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
+
+function parseCalendarDate(value: string): number | null {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const mmddyyyyMatch = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(trimmed);
+  if (mmddyyyyMatch) {
+    const [, month, day, year] = mmddyyyyMatch;
+    return Date.UTC(Number(year), Number(month) - 1, Number(day));
+  }
+
+  const parsed = new Date(trimmed);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+
+  return Date.UTC(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
 }
 
 export async function isErrorPage(page: Page): Promise<boolean> {
@@ -69,6 +105,74 @@ async function saveBookingDebugArtifacts(page: Page, prefix: string, agentLabel 
   }
 
   console.warn(`${agentLabel}Saved booking debug artifacts with prefix ${prefix}-${timestamp}.`);
+}
+
+export async function saveSearchResultsDebugArtifacts(page: Page, prefix: string, agentLabel = ''): Promise<void> {
+  const logDir = path.resolve(process.cwd(), 'logs');
+  if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
+
+  const timestamp = Date.now();
+  const basePath = path.join(logDir, `${prefix}-${timestamp}`);
+
+  await page.screenshot({ path: `${basePath}.png`, fullPage: true }).catch(() => {});
+  const html = await page.content().catch(() => '');
+  if (html) {
+    fs.writeFileSync(`${basePath}.html`, html, 'utf-8');
+  }
+
+  const artifact = await page.evaluate(() => {
+    const loopSelect = document.querySelector<HTMLSelectElement>('#loop');
+    const dateInput = document.querySelector<HTMLInputElement>('#campingDate');
+    const stayInput = document.querySelector<HTMLInputElement>('#lengthOfStay');
+
+    const rows = Array.from(document.querySelectorAll<HTMLDivElement>('.br'))
+      .map((row) => {
+        const siteLink = row.querySelector<HTMLAnchorElement>('.siteListLabel a');
+        const loopName = row.querySelector<HTMLDivElement>('.td.loopName');
+        const actionLink = row.querySelector<HTMLAnchorElement>('.td[class*="sitescompareselectorbtn"] a');
+        const statusCells = Array.from(row.querySelectorAll<HTMLDivElement>('.td.status'));
+        const site = siteLink?.textContent?.trim() ?? '';
+        if (!site) {
+          return null;
+        }
+
+        const leadingStatuses = statusCells.slice(0, 5).map((cell) => {
+          const text = (cell.textContent ?? '').trim().toUpperCase();
+          if (text) return text;
+
+          const classNames = Array.from(cell.classList);
+          const classCode = classNames.find((name) => /^[a-z]$/i.test(name));
+          return classCode ? classCode.toUpperCase() : '';
+        });
+
+        return {
+          site,
+          loop: loopName?.textContent?.trim().toUpperCase() ?? '',
+          actionText: actionLink?.textContent?.toUpperCase().trim() ?? '',
+          leadingStatuses,
+        } satisfies SearchResultRowDebug;
+      })
+      .filter((row): row is SearchResultRowDebug => Boolean(row));
+
+    return {
+      pageUrl: window.location.href,
+      selectedLoopValue: loopSelect?.value ?? '',
+      selectedLoopLabel: loopSelect?.selectedOptions?.[0]?.textContent?.trim().toUpperCase() ?? '',
+      campingDate: dateInput?.value ?? '',
+      lengthOfStay: stayInput?.value ?? '',
+      rows,
+    } satisfies SearchResultsDebugArtifact;
+  }).catch(() => ({
+    pageUrl: page.url(),
+    selectedLoopValue: '',
+    selectedLoopLabel: '',
+    campingDate: '',
+    lengthOfStay: '',
+    rows: [],
+  } satisfies SearchResultsDebugArtifact));
+
+  fs.writeFileSync(`${basePath}.json`, JSON.stringify(artifact, null, 2), 'utf-8');
+  console.warn(`${agentLabel}Saved search results debug artifacts with prefix ${prefix}-${timestamp}.`);
 }
 
 async function findVisibleActionSelector(page: Page, selectors: string[]): Promise<string | null> {
@@ -178,35 +282,60 @@ export async function primeSearchForm(
     }
   }
 
-  await page.evaluate(
-    ({ loopName, date, length }) => {
-      const loopSelect = document.querySelector<HTMLSelectElement>('#loop');
-      const dateInput = document.querySelector<HTMLInputElement>('#campingDate');
-      const stayInput = document.querySelector<HTMLInputElement>('#lengthOfStay');
-      if (!loopSelect || !dateInput || !stayInput) throw new Error('Elements missing.');
+  const normalizedLoop = loop.trim().toUpperCase();
+  const loopValue = await page.locator('#loop').evaluate((select, desiredLoop) => {
+    const option = Array.from((select as HTMLSelectElement).options).find(
+      (candidate) => candidate.textContent?.trim().toUpperCase() === desiredLoop,
+    );
+    return option?.value ?? '';
+  }, normalizedLoop);
+  if (!loopValue) {
+    throw new Error(`Loop "${loop}" was not found in the browser search form.`);
+  }
 
-      const option = Array.from(loopSelect.options).find(
-        (o) => o.textContent?.trim().toUpperCase() === loopName.toUpperCase(),
-      );
-      if (!option) throw new Error('Loop missing.');
-      loopSelect.value = option.value;
-      loopSelect.dispatchEvent(new Event('change', { bubbles: true }));
-      dateInput.value = date;
-      dateInput.dispatchEvent(new Event('change', { bubbles: true }));
-      stayInput.value = length;
-      stayInput.dispatchEvent(new Event('change', { bubbles: true }));
-    },
-    { loopName: loop, date: targetDate, length: stayLength },
-  );
+  await page.selectOption('#loop', loopValue);
+
+  const dateInput = page.locator('#campingDate');
+  await dateInput.fill(targetDate);
+
+  const stayInput = page.locator('#lengthOfStay');
+  await stayInput.fill(stayLength);
+
+  const appliedState = await page.evaluate(() => {
+    const loopSelect = document.querySelector<HTMLSelectElement>('#loop');
+    const dateField = document.querySelector<HTMLInputElement>('#campingDate');
+    const stayField = document.querySelector<HTMLInputElement>('#lengthOfStay');
+    return {
+      loopLabel: loopSelect?.selectedOptions?.[0]?.textContent?.trim().toUpperCase() ?? '',
+      campingDate: dateField?.value ?? '',
+      lengthOfStay: stayField?.value ?? '',
+    };
+  });
+
+  const appliedDateKey = parseCalendarDate(appliedState.campingDate);
+  const targetDateKey = parseCalendarDate(targetDate);
+  if (
+    appliedState.loopLabel !== normalizedLoop ||
+    appliedState.lengthOfStay !== stayLength ||
+    appliedDateKey === null ||
+    targetDateKey === null ||
+    appliedDateKey !== targetDateKey
+  ) {
+    throw new Error(
+      `Search form did not retain requested values. loop=${appliedState.loopLabel || '<empty>'} date=${appliedState.campingDate || '<empty>'} length=${appliedState.lengthOfStay || '<empty>'}`,
+    );
+  }
 }
 
 export async function submitSearchForm(page: Page) {
   const navigation = page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => null);
-  await page.evaluate(() =>
-    (window as any).UnifSearchEngine
-      ? (window as any).UnifSearchEngine.submitForm()
-      : document.querySelector<HTMLFormElement>('#unifSearchForm')?.submit(),
-  );
+  await page.locator('#unifSearchForm').evaluate((form) => {
+    if (typeof (form as HTMLFormElement).requestSubmit === 'function') {
+      (form as HTMLFormElement).requestSubmit();
+      return;
+    }
+    (form as HTMLFormElement).submit();
+  });
   await navigation;
 }
 
@@ -228,21 +357,31 @@ export async function resolveTargetSites(
   page: Page,
   targetDate: string,
   stayLength: string,
+  desiredLoop: string,
 ): Promise<SiteSelection[]> {
   return page.evaluate(
-    ({ date, length, allowedActions, bookableStatusCodes }) => {
+    ({ date, length, desiredLoopName, allowedActions, bookableStatusCodes }) => {
       const requestedNights = Number.parseInt(length, 10);
+      const normalizedLoopName = desiredLoopName.trim().toUpperCase();
       const rows = Array.from(document.querySelectorAll<HTMLDivElement>('.br'));
-      return rows
-        .map((row) => {
+      const mergedBySite = new Map<string, {
+        site: string;
+        detailsUrl: string;
+        actionText: string;
+        loopName: string;
+        leadingStatuses: string[];
+      }>();
+
+      for (const row of rows) {
           const siteLink = row.querySelector<HTMLAnchorElement>('.siteListLabel a');
+          const loopName = row.querySelector<HTMLDivElement>('.td.loopName')?.textContent?.trim().toUpperCase() ?? '';
           const actionLink = row.querySelector<HTMLAnchorElement>('.td[class*="sitescompareselectorbtn"] a');
           const actionText = actionLink?.textContent?.toUpperCase().trim() ?? '';
           const statusCells = Array.from(row.querySelectorAll<HTMLDivElement>('.td.status'));
+          const site = siteLink?.textContent?.trim() ?? '';
 
-          if (!siteLink || !actionLink) return null;
-          if (!allowedActions.some((a) => actionText.includes(a))) return null;
-          if (!Number.isFinite(requestedNights) || requestedNights < 1) return null;
+          if (!siteLink || !site) continue;
+          if (!Number.isFinite(requestedNights) || requestedNights < 1) continue;
 
           const leadingStatuses = statusCells
             .slice(0, requestedNights)
@@ -255,19 +394,44 @@ export async function resolveTargetSites(
               return classCode ? classCode.toUpperCase() : '';
             });
 
-          if (leadingStatuses.length < requestedNights) return null;
-          if (!leadingStatuses.every((status) => bookableStatusCodes.includes(status))) return null;
-
           const url = new URL(siteLink.href, window.location.href);
           url.searchParams.set('arvdate', date);
           url.searchParams.set('lengthOfStay', length);
-          return { site: siteLink.textContent?.trim() ?? '', detailsUrl: url.toString(), actionText };
-        })
-        .filter((s): s is SiteSelection => Boolean(s?.site));
+          const existing = mergedBySite.get(site) ?? {
+            site,
+            detailsUrl: '',
+            actionText: '',
+            loopName: '',
+            leadingStatuses: [],
+          };
+
+          if (!existing.detailsUrl) {
+            existing.detailsUrl = url.toString();
+          }
+          if (!existing.actionText && actionText) {
+            existing.actionText = actionText;
+          }
+          if (!existing.loopName && loopName) {
+            existing.loopName = loopName;
+          }
+          if (leadingStatuses.length > existing.leadingStatuses.length) {
+            existing.leadingStatuses = leadingStatuses;
+          }
+
+          mergedBySite.set(site, existing);
+      }
+
+      return Array.from(mergedBySite.values())
+        .filter((candidate) => candidate.loopName === normalizedLoopName)
+        .filter((candidate) => allowedActions.some((action) => candidate.actionText.includes(action)))
+        .filter((candidate) => candidate.leadingStatuses.length >= requestedNights)
+        .filter((candidate) => candidate.leadingStatuses.every((status) => bookableStatusCodes.includes(status)))
+        .map(({ site, detailsUrl, actionText }) => ({ site, detailsUrl, actionText }));
     },
     {
       date: targetDate,
       length: stayLength,
+      desiredLoopName: desiredLoop,
       allowedActions: ALLOWED_ROW_ACTIONS,
       bookableStatusCodes: Array.from(BOOKABLE_STATUS_CODES),
     },

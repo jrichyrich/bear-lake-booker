@@ -14,16 +14,15 @@ Record each run so the team can answer:
 - what needs to be fixed before the 8:00 AM release race
 
 ## Immediate Next Action
-Current blocker: this worktree does not yet have a `.sessions/` directory, so Scenario 1 cannot run until at least one account session is created.
+Current focus: Phase 1 scenarios are now mostly executed. The next validation work should use a known-bookable target to exercise two-account hold routing and multi-hold coordination under real availability.
 
-Use this sequence first:
+Use this sequence next:
 
-1. Authenticate the default or first account:
-   `npm run auth`
-2. Confirm `.sessions/session.json` exists.
-3. Run Scenario 1:
-   `npm run race -- -d MM/DD/YYYY -l 3 -o BIRCH -m 5 -c 2 --dryRun --headed`
-4. Record the outcome in this file.
+1. Keep both account sessions fresh:
+   `npm run auth -- --user lisarichards1984,jrichards1981`
+2. Identify a known-bookable release-window target or same-day validation target.
+3. Re-run Scenario 3 or 4 against that target.
+4. Record the outcome in this file before changing coordination logic again.
 
 Recommended first dry-run assumptions:
 - use `BIRCH`
@@ -36,9 +35,9 @@ Recommended first dry-run assumptions:
 | Scenario | Status | Last Run | Notes |
 | --- | --- | --- | --- |
 | 1. Single account, dry run | Completed | 2026-03-09 | Auth/session path validated; scheduled dry run reached site details for BC85 on 05/08/2026 |
-| 2. Single account, live `--book` | In progress | 2026-03-09 | False-positive candidates diagnosed; follow-up timed dry run now returns `no-candidates` for the same date |
-| 3. Multi-account, single mode | Not started | - | - |
-| 4. Multi-account, multi mode | Not started | - | - |
+| 2. Single account, live `--book` | Completed | 2026-03-09 | Browser search path was fixed, checkout CAPTCHA handoff worked, and Agent 2 secured BH08 in cart |
+| 3. Multi-account, single mode | Completed | 2026-03-09 | Both account sessions renewed and all four agents completed timed launch with `no-candidates` |
+| 4. Multi-account, multi mode | Completed | 2026-03-09 | Both account sessions renewed and all four agents completed timed launch with `no-candidates` in multi mode |
 
 ## Run Template
 Copy this block for each validation run.
@@ -390,7 +389,7 @@ Preflight:
 
 ### Scenario 2: Single account, live `--book`
 Status:
-In progress. Immediate one-shot run found no availability; scheduled live run exercised the booking path but failed before cart hold because the booking-button locator timed out on site-details pages.
+Completed. The live booking path now reaches a real cart hold with manual checkout login/CAPTCHA handoff, though per-site cart conversion is still not deterministic.
 
 Runs:
 
@@ -669,28 +668,315 @@ npm run race -- -d 05/08/2026 -l 3 -o BIRCH -c 2 -t 17:27:30 --dryRun --headed
 - Interpretation:
   the bogus browser candidate list is now blocked for this scenario; the system no longer burns time walking non-bookable sites for `05/08/2026`
 
+### Follow-up Engineering Result
+- Date: 2026-03-09
+- Change:
+  replaced the browser search-form path with native form submission, added loop-aware search-results debug artifacts, and merged split ReserveAmerica result rows by site ID so each candidate combines its `See Details` action row with its calendar-status row
+- Validation:
+  `npx tsc --noEmit` passed
+  `npx jest --runInBand tests/parser.test.ts tests/site-targeting.test.ts` passed
+- Verification run:
+```bash
+npm run race -- -d 05/22/2026 -l 2 -o BIRCH -c 2 --book --headed --checkoutAuthMode manual
+```
+- Verification summary:
+  `logs/summary-2026-03-10T03-02-28-183Z.json`
+- Result:
+  the browser run matched the HTTP-discovered `BH*` sites in `BIRCH`, Agent 1 failed to move `BH03` into cart, and Agent 2 secured `BH08` in the shopping cart after manual checkout login/CAPTCHA handoff
+- Interpretation:
+  the core single-account booking path is now validated end to end through cart hold, and the remaining risk is site-specific cart conversion variance rather than search/result parsing mismatch
+
+### Run ID
+- Date: 2026-03-09
+- Time: approximately 8:57 PM to 9:02 PM America/Denver
+- Operator: Codex + user
+- Scenario: 2. Single account, live `--book`
+- Environment:
+  worktree `b5d4`, branch `codex/pull-latest-from-github`, headed, live booking target with manual checkout auth
+
+### Command
+```bash
+npm run race -- -d 05/22/2026 -l 2 -o BIRCH -c 2 --book --headed --checkoutAuthMode manual
+```
+
+### Accounts and Sessions
+- Accounts used:
+  default account
+- Expected session files:
+  `.sessions/session.json`
+- Session validation result:
+  renewed during pre-flight, then reused by both agents
+
+### Launch Setup
+- Target arrival date:
+  05/22/2026
+- Loop:
+  BIRCH
+- Concurrency:
+  2
+- Booking mode:
+  single
+- Max holds:
+  1
+- Launch mode:
+  preload
+- Checkout auth mode:
+  manual
+- Sites allowlist:
+  none
+
+### Outcome
+- Result:
+  hold secured
+- Holds secured:
+  one
+- Which account received each hold:
+  default account: `BH08`
+- Duplicate prevention behavior:
+  working; Agent 2 waited behind Agent 1, Agent 1 skipped `BH08` once Agent 2 owned it, and remaining agents were closed after the first hold was secured
+- Cart opening result:
+  successful for `BH08`; unsuccessful for `BH03`
+
+### CAPTCHA and Manual Handoff
+- CAPTCHA encountered:
+  yes
+- Stage:
+  checkout login after Agent 1 reached `Order Details`
+- Manual intervention required:
+  yes
+- Notes:
+  manual sign-in/CAPTCHA completion did not immediately show the cart page, but the script resumed correctly once checkout login was satisfied
+
+### Evidence
+- Run summary file:
+  `logs/summary-2026-03-10T03-02-28-183Z.json`
+- Debug HTML:
+  `logs/debug-search-results-default-1773111403114.html`
+- Screenshots:
+  `logs/cart-agent-2-BH08-1773111747937.png`
+  `logs/fail-cart-agent-1-BH03-1773111744316.png`
+- Console notes:
+  Agent 1 reached `Order Details` for `BH03`, hit checkout CAPTCHA, later failed to move `BH03` into cart; Agent 2 then reached `Order Details` for `BH08` and secured the cart hold
+
+### Issues Found
+- Issue 1:
+  the ReserveAmerica browser results DOM splits each site into a details row and a status-calendar row, so candidate extraction had to merge rows by site ID
+- Issue 2:
+  the site rewrites the entered date string in the search form, so browser validation must compare the calendar day rather than the raw `MM/DD/YYYY` text
+- Issue 3:
+  not every valid candidate converts equally; `BH03` failed at cart transition while `BH08` succeeded in the same run
+
+### Decision
+- Safe to repeat:
+  yes
+- Safe for release day:
+  yes for the single-account capture path with manual CAPTCHA handoff; multi-account real-hold behavior still needs a comparable target
+- Follow-up required:
+  preserve this parser/browser fix, then validate Scenario 3 or 4 against a target that can exercise cross-account hold routing
+
 ### Scenario 3: Multi-account, single mode
 Status:
+Completed for the two-account session-routing and timed launch path. No candidate sites were found, so hold routing and cart behavior were not exercised.
 
 Runs:
+
+### Run ID
+- Date: 2026-03-09
+- Time: approximately 8:32 PM to 8:33 PM America/Denver
+- Operator: Codex + user
+- Scenario: 3. Multi-account, single mode
+- Environment:
+  worktree `b5d4`, branch `codex/pull-latest-from-github`, headed, scheduled launch
+
+### Command
+```bash
+npm run race -- -d 05/08/2026 -l 3 -o BIRCH -c 4 -t 20:33:30 --book --accounts lisarichards1984@gmail.com,jrichards1981@gmail.com --bookingMode single --headed --checkoutAuthMode manual
+```
+
+### Accounts and Sessions
+- Accounts used:
+  `lisarichards1984@gmail.com`, `jrichards1981@gmail.com`
+- Expected session files:
+  `.sessions/session-lisarichards1984.json`
+  `.sessions/session-jrichards1981.json`
+- Session validation result:
+  both accounts renewed successfully during pre-flight
+
+### Launch Setup
+- Target arrival date:
+  05/08/2026
+- Loop:
+  BIRCH
+- Concurrency:
+  4
+- Booking mode:
+  single
+- Max holds:
+  1
+- Launch mode:
+  preload
+- Checkout auth mode:
+  manual
+- Sites allowlist:
+  none
+
+### Outcome
+- Result:
+  no availability / no candidates
+- Holds secured:
+  none
+- Which account received each hold:
+  none
+- Duplicate prevention behavior:
+  not exercised because candidate lists were empty for all agents
+- Cart opening result:
+  not exercised
+
+### CAPTCHA and Manual Handoff
+- CAPTCHA encountered:
+  no explicit CAPTCHA reported
+- Stage:
+  both accounts went through headed manual pre-flight renewal
+- Manual intervention required:
+  yes
+- Notes:
+  both account sessions had to be refreshed during pre-flight, but the run proceeded normally afterward
+
+### Evidence
+- Run summary file:
+  `logs/summary-2026-03-10T02-33-45-343Z.json`
+- Debug HTML:
+  none
+- Screenshots:
+  none
+- Console notes:
+  all four agents preloaded and fired at `2026-03-10T02:33:30.000Z`
+
+### Issues Found
+- Issue 1:
+  two-account session files exist and are usable, but both still required renewal at launch time
+- Issue 2:
+  no-candidate outcome means this scenario did not validate cross-account hold routing yet
+- Issue 3:
+  no cart-opening behavior was exercised
+
+### Decision
+- Safe to repeat:
+  yes
+- Safe for release day:
+  for session-routing and launch validation, yes; for cross-account hold behavior, not yet
+- Follow-up required:
+  run Scenario 3 again against a release-window target or known-bookable case so at least one account receives a real hold attempt
 
 ### Scenario 4: Multi-account, multi mode
 Status:
+Completed for the two-account multi-mode session-routing and timed launch path. No candidate sites were found, so multi-hold registration and max-hold enforcement were not exercised with real holds.
 
 Runs:
 
+### Run ID
+- Date: 2026-03-09
+- Time: approximately 8:35 PM to 8:37 PM America/Denver
+- Operator: Codex + user
+- Scenario: 4. Multi-account, multi mode
+- Environment:
+  worktree `b5d4`, branch `codex/pull-latest-from-github`, headed, scheduled launch
+
+### Command
+```bash
+npm run race -- -d 05/08/2026 -l 3 -o BIRCH -c 4 -t 20:37:00 --book --accounts lisarichards1984@gmail.com,jrichards1981@gmail.com --bookingMode multi --maxHolds 2 --headed --checkoutAuthMode manual
+```
+
+### Accounts and Sessions
+- Accounts used:
+  `lisarichards1984@gmail.com`, `jrichards1981@gmail.com`
+- Expected session files:
+  `.sessions/session-lisarichards1984.json`
+  `.sessions/session-jrichards1981.json`
+- Session validation result:
+  both accounts renewed successfully during pre-flight
+
+### Launch Setup
+- Target arrival date:
+  05/08/2026
+- Loop:
+  BIRCH
+- Concurrency:
+  4
+- Booking mode:
+  multi
+- Max holds:
+  2
+- Launch mode:
+  preload
+- Checkout auth mode:
+  manual
+- Sites allowlist:
+  none
+
+### Outcome
+- Result:
+  no availability / no candidates
+- Holds secured:
+  none
+- Which account received each hold:
+  none
+- Duplicate prevention behavior:
+  not exercised because candidate lists were empty for all agents
+- Cart opening result:
+  not exercised
+
+### CAPTCHA and Manual Handoff
+- CAPTCHA encountered:
+  no explicit CAPTCHA reported
+- Stage:
+  both accounts went through headed manual pre-flight renewal
+- Manual intervention required:
+  yes
+- Notes:
+  both account sessions had to be refreshed during pre-flight, but the run proceeded normally afterward
+
+### Evidence
+- Run summary file:
+  `logs/summary-2026-03-10T02-37-15-427Z.json`
+- Debug HTML:
+  none
+- Screenshots:
+  none
+- Console notes:
+  all four agents preloaded and fired at `2026-03-10T02:37:00.000Z`
+
+### Issues Found
+- Issue 1:
+  two-account multi-mode session routing is valid, but no candidate sites were present to exercise hold registration
+- Issue 2:
+  max-hold enforcement in real conditions remains unvalidated because there were zero candidate sites
+- Issue 3:
+  both accounts still required pre-flight renewal
+
+### Decision
+- Safe to repeat:
+  yes
+- Safe for release day:
+  for multi-mode session-routing and launch validation, yes; for real multi-hold behavior, not yet
+- Follow-up required:
+  run Scenario 4 again against a release-window target or known-bookable case so actual multi-hold coordination can be observed
+
 ## Phase 1 Exit Check
-- [ ] README and docs reflect the current workflow
-- [ ] Single-account dry run completed and recorded
-- [ ] Single-account live `--book` completed and recorded
-- [ ] Multi-account single mode completed and recorded
-- [ ] Multi-account multi mode completed and recorded
-- [ ] CAPTCHA behavior documented
-- [ ] Session renewal behavior documented
-- [ ] Cart-opening behavior documented
+- [x] README and docs reflect the current workflow
+- [x] Single-account dry run completed and recorded
+- [x] Single-account live `--book` completed and recorded
+- [x] Multi-account single mode completed and recorded
+- [x] Multi-account multi mode completed and recorded
+- [x] CAPTCHA behavior documented
+- [x] Session renewal behavior documented
+- [x] Cart-opening behavior documented
 - [ ] Known operating limits written down
 
 ## Open Risks
 - Risk 1:
+- pre-flight session renewal is still frequently needed, which adds operator work close to launch time
 - Risk 2:
+- checkout CAPTCHA can still appear after `Order Details`, so a human must be available during the live race
 - Risk 3:
+- site-level cart conversion is not uniform; one valid candidate may fail while another succeeds moments later
