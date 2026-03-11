@@ -1,19 +1,23 @@
-# Security Audit Report: Bear Lake Booker
+# Security Audit Report
 
-## 🔴 Critical Findings
-- **None confirmed.** Previous command injection vulnerabilities in `execSync` have been resolved.
+**Stack**: TypeScript CLI on Node.js, Playwright/Chromium automation, Cheerio HTML parsing
+**External services**: ReserveAmerica, macOS Keychain, macOS `osascript`/Messages
+**Auth mechanism**: Browser storage-state JSON plus optional keychain-backed credential autofill
 
-## 🟡 Medium Findings
-- **Session Hijacking Risk (Local)**:
-  - `confirmed:` `session.json` and `profiles/` contain active authenticated sessions for ReserveAmerica. While they are correctly ignored in `.git`, any local user with access to the machine could copy these files to hijack the session.
-  - `recommendation:` Consider encrypting `session.json` at rest using a key derived from the Keychain.
+## Critical Findings 🔴
+- None confirmed in tracked source.
 
-## 🟢 Low Findings
-- **PII Centralization**:
-  - `confirmed:` All personal emails (`RECIPIENT`, `DEFAULT_ACCOUNT`) are centralized in `src/config.ts`. While much better than being scattered in logic, they are still committed to source control if that file is pushed.
-  - `recommendation:` Move these to environment variables or a local `.env` file (and add `.env` to `.gitignore`).
+## Warnings 🟡
+- No server-side injection surface, auth bypass, or committed secret was found in tracked source, but this tool intentionally handles live session cookies and credentials. Operators still need to treat local `.sessions/` and persistent browser profiles as sensitive runtime state.
 
-## 🛡️ Security Strengths
-- **Keychain Integration**: Excellent use of macOS Keychain for actual passwords. This ensures that even if the source code is leaked, the account password remains safe.
-- **Injection Prevention**: Consistent use of `execFileSync` prevents shell injection when dispatching AppleScript notifications.
-- **Stealth Browsing**: Use of `playwright-extra` with the stealth plugin reduces the footprint of the automation agents.
+## Scan Results
+- Secret-pattern scans across tracked source/config returned no hits.
+- No `.env` file is tracked at repo root.
+- `npm audit` reported 0 dependency vulnerabilities.
+- No insecure hashing, JWT handling, SQL construction, or shell-eval paths were found in tracked source.
+
+## Auth Review
+Sessions are created and refreshed through Playwright and stored as browser storage-state JSON. Session validation is explicit: `validateSessionActive` checks a protected ReserveAmerica page rather than trusting cookie expiry metadata alone. The main security concern is operational rather than exploit-driven: this is a local automation tool that depends on protecting the workstation and the session artifacts it creates.
+
+## Verdict
+The tracked repository does not currently show exploitable web-app style security flaws. The bigger risks are correctness and operational reliability, not attacker-controlled input or dependency exposure.

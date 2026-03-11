@@ -1,26 +1,33 @@
-# Cross-Cutting Scan Results
+# Cross-Cutting Scan
 
-### Dead Code & Stubs
-- No explicit `TODO`, `FIXME`, or `NotImplementedError` found in core source.
+## Orientation
+Bear Lake Booker is a TypeScript CLI that watches Bear Lake State Park inventory and then switches into Playwright-driven cart-hold automation. The codebase is moderately sized: roughly 7.6k lines of source TS plus 1.6k lines of Jest tests, with the heaviest modules concentrated in `src/race.ts`, `src/automation.ts`, and `src/site-calendar.ts`. The repo is operationally focused rather than library-oriented: most value sits in a few large CLI entry points and browser flows, not in a broad API surface.
 
-### Hardcoded Secrets & PII
-- `src/config.ts`: Contains hardcoded recipient email `richards_jason@me.com`.
-- `src/config.ts`: Contains default account `lisarichards1984@gmail.com`.
-- `.sessions/`: Active session cookies are stored here with restricted permissions (`0700` directory / `0600` files) enforced by `src/session-utils.ts`.
-- Legacy root-level `session.json`: Compatibility code now hardens this file to `0600` when encountered, but it may still remain on disk until manually removed.
+## Command Results
+- `npx tsc --noEmit`: passed with no TypeScript errors.
+- `npx jest --runInBand`: 16/16 suites passed, 92/92 tests passed.
+- Availability/reporting chunk tests: 6 suites passed, 33 tests passed.
+- Race coordination chunk tests: 4 suites passed, 20 tests passed.
+- Browser/cart helper tests: 2 suites passed, 13 tests passed.
+- Auth/session helper tests: 1 suite passed, 1 test passed.
+- Release/projection helper tests: 2 suites passed, 14 tests passed.
+- Notifications tests: 1 suite passed, 11 tests passed.
+- `npm audit` and `npm audit --omit=dev`: found 0 vulnerabilities.
+- `rg` scans for `TODO|FIXME|HACK|STUB|NotImplemented`: no matches in `src/`, `scripts/`, or `tests/`.
+- Secret-pattern scan across tracked source/config: no matches.
+- Source lines: `7597`
+- Test lines: `1603`
 
-### Hardcoded URLs
-- Extensive use of `https://utahstateparks.reserveamerica.com` throughout `src/reserveamerica.ts`, `src/automation.ts`, and `src/config.ts`. While expected for a targeted tool, it makes porting to other parks difficult.
+## Findings
 
-### Dependencies & Vulnerabilities
-- `npm audit`: 0 vulnerabilities found.
-- Dependencies are modern (Playwright 1.58, TypeScript 5.9).
+### Warning
+- **[package.json:21]** — `npm test` is wired to a stub that exits 1 even though Jest suites exist and pass under `npx jest --runInBand`. This breaks the default Node workflow and will produce false-negative CI results if a pipeline uses the conventional test script.
+- **[src/race.ts:110-117]** — Numeric CLI options (`--concurrency`, `--monitorInterval`, `--maxHolds`) are parsed with `parseInt` and then trusted without validation. Invalid input can become `NaN`, which will distort scheduling and hold-cap logic rather than fail fast.
+- **[src/timer-utils.ts:25-41]** — `waitForTargetTime` busy-spins for the final 200ms. For a single process this is tolerable, but on multi-agent runs it burns CPU right at the launch boundary and makes timing behavior harder to reason about under load.
+- **[src/race.ts] / [src/release.ts] / [src/automation.ts]** — The most important browser-orchestration modules have no direct unit or integration coverage. The passing Jest suite mainly covers helpers and parsers, so the riskiest live paths still rely on manual validation.
 
-### Complexity & Test Ratio
-- **Source Lines**: ~2,495 TS
-- **Test Lines**: ~85 TS
-- **Ratio**: ~29:1 (Extremely low test coverage). Core logic in `src/automation.ts` and `src/race.ts` is entirely untested.
+## Dead Code
+- No obvious dead files or stubbed implementations were found in tracked source.
 
-### Interface Exports
-- Modules are well-structured with clear functional boundaries.
-- `src/automation.ts` exports 10+ functions, acting as a high-level driver for Playwright.
+## Interface Integrity
+- The typed helper surface is generally coherent. Most issues come from business assumptions leaking across chunks: hard-coded site-code formats, hard-coded park URLs, and release-window timing assumptions.

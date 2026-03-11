@@ -1,61 +1,61 @@
 # Intent Map
 
-### Chunk: ReserveAmerica API Integration
-- **Purpose**: Low-level communication with the ReserveAmerica reservation system using standard HTTP requests.
-- **User-facing feature(s)**: Availability checking, search filtering.
-- **Files**: `src/reserveamerica.ts`, `src/flow.ts`.
-- **Key functions/classes**: `searchAvailability`, `parseSearchResult`, `resolveLoopValue`.
-- **Inputs**: Search parameters (date, length, loop).
-- **Outputs**: `SearchResult` object containing site availability details.
-- **Depends on**: `src/config.ts`.
-- **Risk level**: High (core functionality, sensitive to system changes).
+## Chunk: Availability Data & Reports
+- **Purpose**: Pull availability from ReserveAmerica, parse HTML calendars, and turn the results into ranked reports and snapshots.
+- **User-facing feature(s)**: HTTP monitoring, full-loop availability reports, per-site calendar scouting
+- **Files**: `src/reserveamerica.ts`, `src/availability.ts`, `src/availability-utils.ts`, `src/availability-snapshots.ts`, `src/site-calendar.ts`, `src/site-availability.ts`, `src/site-availability-utils.ts`, `src/site-lists.ts`
+- **Key functions/classes**: `searchAvailability`, `parseSearchResultPage`, `fetchSiteCalendarAvailability`, `writeAvailabilitySnapshot`, `rankRequestedSitesForCapture`, `loadSiteList`
+- **Inputs**: arrival date(s), stay length, loop, optional site allowlist, optional snapshot path
+- **Outputs**: site availability rows, per-site calendar summaries, JSON/Markdown/CSV snapshots, ranked site lists
+- **Depends on**: ReserveAmerica HTML responses, local filesystem
+- **Risk level**: High
 
-### Chunk: Standard Monitoring
-- **Purpose**: Continuous background monitoring for campsite openings.
-- **User-facing feature(s)**: "Standard Check", "Continuous Monitoring".
-- **Files**: `src/index.ts`.
-- **Key functions/classes**: `main` polling loop.
-- **Inputs**: CLI arguments (interval, target date).
-- **Outputs**: Console logs, notifications.
-- **Depends on**: `ReserveAmerica API Integration`, `src/notify.ts`.
-- **Risk level**: Low.
+## Chunk: Race Orchestration
+- **Purpose**: Allocate agents across accounts, sequence booking attempts, and summarize the run.
+- **User-facing feature(s)**: Hybrid race mode, multi-agent coordination, multi-hold capture
+- **Files**: `src/race.ts`, `src/account-booker.ts`, `src/account-booker-runtime.ts`, `src/booking-policy.ts`, `src/site-targeting.ts`, `src/launch-strategy.ts`, `src/reporter.ts`, `src/flow-contract.ts`
+- **Key functions/classes**: `startRace`, `launchCapture`, `runAgent`, `AccountBooker`, `AccountBookerRuntime`, `assignPreferredSitesToAgents`
+- **Inputs**: capture CLI flags, account list, target sites, session state
+- **Outputs**: browser launches, hold records, per-agent summaries, process exit codes
+- **Depends on**: browser automation chunk, auth/session chunk, availability data chunk
+- **Risk level**: High
 
-### Chunk: Race Mode (Automation)
-- **Purpose**: High-speed, multi-agent browser automation to secure sites at release time.
-- **User-facing feature(s)**: "Hybrid Capture", "Scheduled Capture".
-- **Files**: `src/race.ts`, `src/automation.ts`.
-- **Key functions/classes**: `runAgent`, `launchCapture`, `primeSearchForm`, `addToCart`.
-- **Inputs**: Target site list, concurrency settings.
-- **Outputs**: Screenshots of successful holds, notification alerts.
-- **Depends on**: `Playwright`, `Authentication & Session Management`, `src/reporter.ts`.
-- **Risk level**: High (complex state management, potential for blocking).
+## Chunk: Browser Automation & Cart Handling
+- **Purpose**: Drive Playwright through the search, site, order-details, and cart flows.
+- **User-facing feature(s)**: Automated booking, cart confirmation, checkout-auth recovery
+- **Files**: `src/automation.ts`, `src/cart-detection.ts`, `src/checkout-auth.ts`
+- **Key functions/classes**: `primeSearchForm`, `resolveTargetSites`, `continueToOrderDetails`, `addToCart`, `inspectCartState`, `determineCartConfirmation`
+- **Inputs**: Playwright pages/contexts, target site selection, target date, stay length, account/session info
+- **Outputs**: selected sites, order-details transitions, cart verification results, debug artifacts
+- **Depends on**: ReserveAmerica DOM shape, keychain/session helpers
+- **Risk level**: High
 
-### Chunk: Authentication & Session Management
-- **Purpose**: Handles user identity, secure credential storage, and session persistence.
-- **User-facing feature(s)**: Authentication login, Session persistence.
-- **Files**: `src/auth.ts`, `src/check-session.ts`, `src/session-manager.ts`, `src/session-utils.ts`, `src/keychain.ts`, `src/setup-keychain.ts`.
-- **Key functions/classes**: `setupAuthForAccounts`, `performAutoLogin`, `ensureActiveSession`, `getPassword`, `saveReserveAmericaCredentials`.
-- **Inputs**: User credentials (manual or keychain).
-- **Outputs**: `session.json` state, macOS Keychain entries.
-- **Depends on**: `macOS Security CLI`, `Playwright`.
-- **Risk level**: High (security of credentials, session validity).
+## Chunk: Auth & Session Management
+- **Purpose**: Create, validate, renew, and load account sessions and credentials.
+- **User-facing feature(s)**: Manual auth, auto-login, session renewal, cart viewing
+- **Files**: `src/auth.ts`, `src/session-utils.ts`, `src/session-manager.ts`, `src/keychain.ts`, `src/setup-keychain.ts`, `src/check-session.ts`, `src/view-cart.ts`
+- **Key functions/classes**: `setupAuthForAccounts`, `performAutoLogin`, `ensureActiveSession`, `getReserveAmericaCredentials`, `validateSessionActive`
+- **Inputs**: account identifiers, keychain entries, saved storage-state JSON
+- **Outputs**: session files, renewed browser state, opened cart windows
+- **Depends on**: Playwright, macOS Keychain, local filesystem
+- **Risk level**: Medium
 
-### Chunk: Infrastructure & Utilities
-- **Purpose**: Shared configuration, notification logic, and reporting helpers.
-- **User-facing feature(s)**: Notifications, Run reports.
-- **Files**: `src/config.ts`, `src/notify.ts`, `src/reporter.ts`, `src/theme.ts`, `src/timer-utils.ts`.
-- **Key functions/classes**: `notifySuccess`, `writeRunSummary`.
-- **Inputs**: Event data, status updates.
-- **Outputs**: AppleScript notifications, summary log files.
-- **Depends on**: System shell (for notifications).
-- **Risk level**: Low.
+## Chunk: Release Wrapper & Projection
+- **Purpose**: Freeze a site target set before launch time and invoke `race.ts` with a release-day plan.
+- **User-facing feature(s)**: Scheduled release runs, release-morning projection shortlist
+- **Files**: `src/release.ts`, `src/release-utils.ts`, `src/projection-shortlists.ts`
+- **Key functions/classes**: `resolveReleaseSchedule`, `resolveProjectionAt`, `resolveTargetSites`, `runProjectionShortlist`, `buildReleaseRaceArgs`
+- **Inputs**: launch time, target date, stay length, site list/snapshot, accounts
+- **Outputs**: resolved site shortlist, projection artifacts, spawned race process
+- **Depends on**: availability data chunk, auth/session chunk, race orchestration chunk
+- **Risk level**: High
 
-### Chunk: Inspection & Debugging
-- **Purpose**: Development tools for analyzing network traffic and verifying session health.
-- **User-facing feature(s)**: Traffic inspection, session verification.
-- **Files**: `src/inspect.ts`, `src/test-notify.ts`, `src/view-cart.ts`, `scripts/test_session.ts`, `scripts/find_open_date.ts`.
-- **Key functions/classes**: `inspectTraffic`, `viewCart`.
-- **Inputs**: Live network traffic, session files.
-- **Outputs**: Traffic logs, browser views.
-- **Depends on**: `Playwright`.
-- **Risk level**: Medium (leaks traffic data if not handled carefully).
+## Chunk: Monitoring, Notifications & Ops Utilities
+- **Purpose**: Provide low-overhead monitoring, wrapper flows, notifications, and network-inspection tooling.
+- **User-facing feature(s)**: Continuous monitor, end-to-end wrapper, iMessage/desktop notifications, request capture
+- **Files**: `src/index.ts`, `src/notify.ts`, `src/inspect.ts`, `src/flow.ts`, `src/timer-utils.ts`, `src/config.ts`, `src/theme.ts`, `src/serial-task-queue.ts`, `src/test-notify.ts`, `scripts/find_open_date.ts`, `scripts/test_session.ts`
+- **Key functions/classes**: `checkAvailability`, `notifySuccess`, `notifyFinalInventorySummary`, `waitForTargetTime`, `attachLogging`
+- **Inputs**: monitor CLI args, success events, timing information, browser traffic
+- **Outputs**: notifications, logs, flow orchestration, network captures
+- **Depends on**: availability data chunk, race orchestration chunk, auth/session chunk
+- **Risk level**: Medium
