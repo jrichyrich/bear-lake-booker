@@ -1,0 +1,130 @@
+{
+  "generatedAt": "2026-03-11T13:44:20.630Z",
+  "searchedAt": "2026-03-11T13:44:20.630Z",
+  "loop": "BIRCH",
+  "stayLength": "1",
+  "seedDate": "07/11/2026",
+  "requestedSites": [
+    "BH32"
+  ],
+  "missingSites": [],
+  "results": [
+    {
+      "site": "BH32",
+      "loop": "BIRCH",
+      "siteId": "6799",
+      "detailsUrl": "https://utahstateparks.reserveamerica.com/camping/bear-lake-state-park/r/campsiteDetails.do?siteId=6799&contractCode=UT&parkId=343061",
+      "seedDate": "07/11/2026",
+      "seedDateBookableNow": false,
+      "pagesFetched": 1,
+      "maxConsecutiveNights": 1,
+      "maxFutureConsecutiveNights": 13,
+      "availableRanges": [
+        {
+          "startDate": "07/11/2026",
+          "endDate": "07/11/2026",
+          "nights": 1
+        }
+      ],
+      "futureAvailableRanges": [
+        {
+          "startDate": "07/12/2026",
+          "endDate": "07/24/2026",
+          "nights": 13
+        }
+      ],
+      "days": [
+        {
+          "date": "07/11/2026",
+          "status": "A",
+          "reservable": true,
+          "futureReservable": false
+        },
+        {
+          "date": "07/12/2026",
+          "status": "a",
+          "reservable": false,
+          "futureReservable": true
+        },
+        {
+          "date": "07/13/2026",
+          "status": "a",
+          "reservable": false,
+          "futureReservable": true
+        },
+        {
+          "date": "07/14/2026",
+          "status": "a",
+          "reservable": false,
+          "futureReservable": true
+        },
+        {
+          "date": "07/15/2026",
+          "status": "a",
+          "reservable": false,
+          "futureReservable": true
+        },
+        {
+          "date": "07/16/2026",
+          "status": "a",
+          "reservable": false,
+          "futureReservable": true
+        },
+        {
+          "date": "07/17/2026",
+          "status": "a",
+          "reservable": false,
+          "futureReservable": true
+        },
+        {
+          "date": "07/18/2026",
+          "status": "a",
+          "reservable": false,
+          "futureReservable": true
+        },
+        {
+          "date": "07/19/2026",
+          "status": "a",
+          "reservable": false,
+          "futureReservable": true
+        },
+        {
+          "date": "07/20/2026",
+          "status": "a",
+          "reservable": false,
+          "futureReservable": true
+        },
+        {
+          "date": "07/21/2026",
+          "status": "a",
+          "reservable": false,
+          "futureReservable": true
+        },
+        {
+          "date": "07/22/2026",
+          "status": "a",
+          "reservable": false,
+          "futureReservable": true
+        },
+        {
+          "date": "07/23/2026",
+          "status": "a",
+          "reservable": false,
+          "futureReservable": true
+        },
+        {
+          "date": "07/24/2026",
+          "status": "a",
+          "reservable": false,
+          "futureReservable": true
+        }
+      ],
+      "maxReservationWindowDate": "03/11/2027",
+      "firstVisibleDate": "07/11/2026",
+      "lastVisibleDate": "07/24/2026",
+      "firstAvailableDate": "07/11/2026",
+      "firstFutureAvailableDate": "07/12/2026"
+    }
+  ],
+  "dateTo": "07/24/2026"
+}

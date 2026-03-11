@@ -1,0 +1,1827 @@
+{
+  "generatedAt": "2026-03-11T13:51:21.424Z",
+  "searchedAt": "2026-03-11T13:51:21.425Z",
+  "loop": "BIRCH",
+  "stayLength": "14",
+  "seedDate": "07/15/2026",
+  "requestedSites": [
+    "BH09",
+    "BH11",
+    "BH12",
+    "BH13",
+    "BH22",
+    "BH10",
+    "BH14",
+    "BH15",
+    "BH16",
+    "BH17",
+    "BH18",
+    "BH19",
+    "BH20",
+    "BH21",
+    "BH23",
+    "BH24",
+    "BH25",
+    "BH26",
+    "BH27",
+    "BH28",
+    "BH29",
+    "BH30",
+    "BH32",
+    "BH33",
+    "BH34",
+    "BH35",
+    "BH36",
+    "BH37",
+    "BH38",
+    "BH39",
+    "BH40",
+    "BH41",
+    "BH42",
+    "BH43",
+    "BH44",
+    "BH45",
+    "BH47",
+    "BH48",
+    "BH49",
+    "BH50",
+    "BH51",
+    "BH52",
+    "BH53",
+    "BH54",
+    "BH55",
+    "BH56",
+    "BH57",
+    "BH58",
+    "BH60"
+  ],
+  "missingSites": [],
+  "results": [
+    {
+      "site": "BH09",
+      "loop": "BIRCH",
+      "siteId": "6776",
+      "detailsUrl": "https://utahstateparks.reserveamerica.com/camping/bear-lake-state-park/r/campsiteDetails.do?siteId=6776&contractCode=UT&parkId=343061",
+      "seedDate": "07/15/2026",
+      "seedDateBookableNow": false,
+      "pagesFetched": 1,
+      "maxConsecutiveNights": 0,
+      "maxFutureConsecutiveNights": 0,
+      "availableRanges": [],
+      "futureAvailableRanges": [],
+      "days": [
+        {
+          "date": "07/15/2026",
+          "status": "X",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ],
+      "maxReservationWindowDate": "03/11/2027",
+      "firstVisibleDate": "07/15/2026",
+      "lastVisibleDate": "07/15/2026",
+      "maxConsecutiveAvailableArrivals": 0,
+      "maxConsecutiveFutureAvailableArrivals": 0,
+      "availableArrivalRanges": [],
+      "futureAvailableArrivalRanges": [],
+      "arrivalStatuses": [
+        {
+          "date": "07/15/2026",
+          "status": "X",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ]
+    },
+    {
+      "site": "BH11",
+      "loop": "BIRCH",
+      "siteId": "6778",
+      "detailsUrl": "https://utahstateparks.reserveamerica.com/camping/bear-lake-state-park/r/campsiteDetails.do?siteId=6778&contractCode=UT&parkId=343061",
+      "seedDate": "07/15/2026",
+      "seedDateBookableNow": false,
+      "pagesFetched": 1,
+      "maxConsecutiveNights": 0,
+      "maxFutureConsecutiveNights": 0,
+      "availableRanges": [],
+      "futureAvailableRanges": [],
+      "days": [
+        {
+          "date": "07/15/2026",
+          "status": "X",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ],
+      "maxReservationWindowDate": "03/11/2027",
+      "firstVisibleDate": "07/15/2026",
+      "lastVisibleDate": "07/15/2026",
+      "maxConsecutiveAvailableArrivals": 0,
+      "maxConsecutiveFutureAvailableArrivals": 0,
+      "availableArrivalRanges": [],
+      "futureAvailableArrivalRanges": [],
+      "arrivalStatuses": [
+        {
+          "date": "07/15/2026",
+          "status": "X",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ]
+    },
+    {
+      "site": "BH12",
+      "loop": "BIRCH",
+      "siteId": "6779",
+      "detailsUrl": "https://utahstateparks.reserveamerica.com/camping/bear-lake-state-park/r/campsiteDetails.do?siteId=6779&contractCode=UT&parkId=343061",
+      "seedDate": "07/15/2026",
+      "seedDateBookableNow": false,
+      "pagesFetched": 1,
+      "maxConsecutiveNights": 0,
+      "maxFutureConsecutiveNights": 0,
+      "availableRanges": [],
+      "futureAvailableRanges": [],
+      "days": [
+        {
+          "date": "07/15/2026",
+          "status": "X",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ],
+      "maxReservationWindowDate": "03/11/2027",
+      "firstVisibleDate": "07/15/2026",
+      "lastVisibleDate": "07/15/2026",
+      "maxConsecutiveAvailableArrivals": 0,
+      "maxConsecutiveFutureAvailableArrivals": 0,
+      "availableArrivalRanges": [],
+      "futureAvailableArrivalRanges": [],
+      "arrivalStatuses": [
+        {
+          "date": "07/15/2026",
+          "status": "X",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ]
+    },
+    {
+      "site": "BH13",
+      "loop": "BIRCH",
+      "siteId": "6780",
+      "detailsUrl": "https://utahstateparks.reserveamerica.com/camping/bear-lake-state-park/r/campsiteDetails.do?siteId=6780&contractCode=UT&parkId=343061",
+      "seedDate": "07/15/2026",
+      "seedDateBookableNow": false,
+      "pagesFetched": 1,
+      "maxConsecutiveNights": 0,
+      "maxFutureConsecutiveNights": 0,
+      "availableRanges": [],
+      "futureAvailableRanges": [],
+      "days": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ],
+      "maxReservationWindowDate": "03/11/2027",
+      "firstVisibleDate": "07/15/2026",
+      "lastVisibleDate": "07/15/2026",
+      "maxConsecutiveAvailableArrivals": 0,
+      "maxConsecutiveFutureAvailableArrivals": 0,
+      "availableArrivalRanges": [],
+      "futureAvailableArrivalRanges": [],
+      "arrivalStatuses": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ]
+    },
+    {
+      "site": "BH22",
+      "loop": "BIRCH",
+      "siteId": "6789",
+      "detailsUrl": "https://utahstateparks.reserveamerica.com/camping/bear-lake-state-park/r/campsiteDetails.do?siteId=6789&contractCode=UT&parkId=343061",
+      "seedDate": "07/15/2026",
+      "seedDateBookableNow": false,
+      "pagesFetched": 1,
+      "maxConsecutiveNights": 0,
+      "maxFutureConsecutiveNights": 0,
+      "availableRanges": [],
+      "futureAvailableRanges": [],
+      "days": [
+        {
+          "date": "07/15/2026",
+          "status": "X",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ],
+      "maxReservationWindowDate": "03/11/2027",
+      "firstVisibleDate": "07/15/2026",
+      "lastVisibleDate": "07/15/2026",
+      "maxConsecutiveAvailableArrivals": 0,
+      "maxConsecutiveFutureAvailableArrivals": 0,
+      "availableArrivalRanges": [],
+      "futureAvailableArrivalRanges": [],
+      "arrivalStatuses": [
+        {
+          "date": "07/15/2026",
+          "status": "X",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ]
+    },
+    {
+      "site": "BH10",
+      "loop": "BIRCH",
+      "siteId": "6777",
+      "detailsUrl": "https://utahstateparks.reserveamerica.com/camping/bear-lake-state-park/r/campsiteDetails.do?siteId=6777&contractCode=UT&parkId=343061",
+      "seedDate": "07/15/2026",
+      "seedDateBookableNow": false,
+      "pagesFetched": 1,
+      "maxConsecutiveNights": 0,
+      "maxFutureConsecutiveNights": 0,
+      "availableRanges": [],
+      "futureAvailableRanges": [],
+      "days": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ],
+      "maxReservationWindowDate": "03/11/2027",
+      "firstVisibleDate": "07/15/2026",
+      "lastVisibleDate": "07/15/2026",
+      "maxConsecutiveAvailableArrivals": 0,
+      "maxConsecutiveFutureAvailableArrivals": 0,
+      "availableArrivalRanges": [],
+      "futureAvailableArrivalRanges": [],
+      "arrivalStatuses": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ]
+    },
+    {
+      "site": "BH14",
+      "loop": "BIRCH",
+      "siteId": "6781",
+      "detailsUrl": "https://utahstateparks.reserveamerica.com/camping/bear-lake-state-park/r/campsiteDetails.do?siteId=6781&contractCode=UT&parkId=343061",
+      "seedDate": "07/15/2026",
+      "seedDateBookableNow": false,
+      "pagesFetched": 1,
+      "maxConsecutiveNights": 0,
+      "maxFutureConsecutiveNights": 0,
+      "availableRanges": [],
+      "futureAvailableRanges": [],
+      "days": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ],
+      "maxReservationWindowDate": "03/11/2027",
+      "firstVisibleDate": "07/15/2026",
+      "lastVisibleDate": "07/15/2026",
+      "maxConsecutiveAvailableArrivals": 0,
+      "maxConsecutiveFutureAvailableArrivals": 0,
+      "availableArrivalRanges": [],
+      "futureAvailableArrivalRanges": [],
+      "arrivalStatuses": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ]
+    },
+    {
+      "site": "BH15",
+      "loop": "BIRCH",
+      "siteId": "6782",
+      "detailsUrl": "https://utahstateparks.reserveamerica.com/camping/bear-lake-state-park/r/campsiteDetails.do?siteId=6782&contractCode=UT&parkId=343061",
+      "seedDate": "07/15/2026",
+      "seedDateBookableNow": false,
+      "pagesFetched": 1,
+      "maxConsecutiveNights": 0,
+      "maxFutureConsecutiveNights": 0,
+      "availableRanges": [],
+      "futureAvailableRanges": [],
+      "days": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ],
+      "maxReservationWindowDate": "03/11/2027",
+      "firstVisibleDate": "07/15/2026",
+      "lastVisibleDate": "07/15/2026",
+      "maxConsecutiveAvailableArrivals": 0,
+      "maxConsecutiveFutureAvailableArrivals": 0,
+      "availableArrivalRanges": [],
+      "futureAvailableArrivalRanges": [],
+      "arrivalStatuses": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ]
+    },
+    {
+      "site": "BH16",
+      "loop": "BIRCH",
+      "siteId": "6783",
+      "detailsUrl": "https://utahstateparks.reserveamerica.com/camping/bear-lake-state-park/r/campsiteDetails.do?siteId=6783&contractCode=UT&parkId=343061",
+      "seedDate": "07/15/2026",
+      "seedDateBookableNow": false,
+      "pagesFetched": 1,
+      "maxConsecutiveNights": 0,
+      "maxFutureConsecutiveNights": 0,
+      "availableRanges": [],
+      "futureAvailableRanges": [],
+      "days": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ],
+      "maxReservationWindowDate": "03/11/2027",
+      "firstVisibleDate": "07/15/2026",
+      "lastVisibleDate": "07/15/2026",
+      "maxConsecutiveAvailableArrivals": 0,
+      "maxConsecutiveFutureAvailableArrivals": 0,
+      "availableArrivalRanges": [],
+      "futureAvailableArrivalRanges": [],
+      "arrivalStatuses": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ]
+    },
+    {
+      "site": "BH17",
+      "loop": "BIRCH",
+      "siteId": "6784",
+      "detailsUrl": "https://utahstateparks.reserveamerica.com/camping/bear-lake-state-park/r/campsiteDetails.do?siteId=6784&contractCode=UT&parkId=343061",
+      "seedDate": "07/15/2026",
+      "seedDateBookableNow": false,
+      "pagesFetched": 1,
+      "maxConsecutiveNights": 0,
+      "maxFutureConsecutiveNights": 0,
+      "availableRanges": [],
+      "futureAvailableRanges": [],
+      "days": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ],
+      "maxReservationWindowDate": "03/11/2027",
+      "firstVisibleDate": "07/15/2026",
+      "lastVisibleDate": "07/15/2026",
+      "maxConsecutiveAvailableArrivals": 0,
+      "maxConsecutiveFutureAvailableArrivals": 0,
+      "availableArrivalRanges": [],
+      "futureAvailableArrivalRanges": [],
+      "arrivalStatuses": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ]
+    },
+    {
+      "site": "BH18",
+      "loop": "BIRCH",
+      "siteId": "6785",
+      "detailsUrl": "https://utahstateparks.reserveamerica.com/camping/bear-lake-state-park/r/campsiteDetails.do?siteId=6785&contractCode=UT&parkId=343061",
+      "seedDate": "07/15/2026",
+      "seedDateBookableNow": false,
+      "pagesFetched": 1,
+      "maxConsecutiveNights": 0,
+      "maxFutureConsecutiveNights": 0,
+      "availableRanges": [],
+      "futureAvailableRanges": [],
+      "days": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ],
+      "maxReservationWindowDate": "03/11/2027",
+      "firstVisibleDate": "07/15/2026",
+      "lastVisibleDate": "07/15/2026",
+      "maxConsecutiveAvailableArrivals": 0,
+      "maxConsecutiveFutureAvailableArrivals": 0,
+      "availableArrivalRanges": [],
+      "futureAvailableArrivalRanges": [],
+      "arrivalStatuses": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ]
+    },
+    {
+      "site": "BH19",
+      "loop": "BIRCH",
+      "siteId": "6786",
+      "detailsUrl": "https://utahstateparks.reserveamerica.com/camping/bear-lake-state-park/r/campsiteDetails.do?siteId=6786&contractCode=UT&parkId=343061",
+      "seedDate": "07/15/2026",
+      "seedDateBookableNow": false,
+      "pagesFetched": 1,
+      "maxConsecutiveNights": 0,
+      "maxFutureConsecutiveNights": 0,
+      "availableRanges": [],
+      "futureAvailableRanges": [],
+      "days": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ],
+      "maxReservationWindowDate": "03/11/2027",
+      "firstVisibleDate": "07/15/2026",
+      "lastVisibleDate": "07/15/2026",
+      "maxConsecutiveAvailableArrivals": 0,
+      "maxConsecutiveFutureAvailableArrivals": 0,
+      "availableArrivalRanges": [],
+      "futureAvailableArrivalRanges": [],
+      "arrivalStatuses": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ]
+    },
+    {
+      "site": "BH20",
+      "loop": "BIRCH",
+      "siteId": "6787",
+      "detailsUrl": "https://utahstateparks.reserveamerica.com/camping/bear-lake-state-park/r/campsiteDetails.do?siteId=6787&contractCode=UT&parkId=343061",
+      "seedDate": "07/15/2026",
+      "seedDateBookableNow": false,
+      "pagesFetched": 1,
+      "maxConsecutiveNights": 0,
+      "maxFutureConsecutiveNights": 0,
+      "availableRanges": [],
+      "futureAvailableRanges": [],
+      "days": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ],
+      "maxReservationWindowDate": "03/11/2027",
+      "firstVisibleDate": "07/15/2026",
+      "lastVisibleDate": "07/15/2026",
+      "maxConsecutiveAvailableArrivals": 0,
+      "maxConsecutiveFutureAvailableArrivals": 0,
+      "availableArrivalRanges": [],
+      "futureAvailableArrivalRanges": [],
+      "arrivalStatuses": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ]
+    },
+    {
+      "site": "BH21",
+      "loop": "BIRCH",
+      "siteId": "6788",
+      "detailsUrl": "https://utahstateparks.reserveamerica.com/camping/bear-lake-state-park/r/campsiteDetails.do?siteId=6788&contractCode=UT&parkId=343061",
+      "seedDate": "07/15/2026",
+      "seedDateBookableNow": false,
+      "pagesFetched": 1,
+      "maxConsecutiveNights": 0,
+      "maxFutureConsecutiveNights": 0,
+      "availableRanges": [],
+      "futureAvailableRanges": [],
+      "days": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ],
+      "maxReservationWindowDate": "03/11/2027",
+      "firstVisibleDate": "07/15/2026",
+      "lastVisibleDate": "07/15/2026",
+      "maxConsecutiveAvailableArrivals": 0,
+      "maxConsecutiveFutureAvailableArrivals": 0,
+      "availableArrivalRanges": [],
+      "futureAvailableArrivalRanges": [],
+      "arrivalStatuses": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ]
+    },
+    {
+      "site": "BH23",
+      "loop": "BIRCH",
+      "siteId": "6790",
+      "detailsUrl": "https://utahstateparks.reserveamerica.com/camping/bear-lake-state-park/r/campsiteDetails.do?siteId=6790&contractCode=UT&parkId=343061",
+      "seedDate": "07/15/2026",
+      "seedDateBookableNow": false,
+      "pagesFetched": 1,
+      "maxConsecutiveNights": 0,
+      "maxFutureConsecutiveNights": 0,
+      "availableRanges": [],
+      "futureAvailableRanges": [],
+      "days": [
+        {
+          "date": "07/15/2026",
+          "status": "X",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ],
+      "maxReservationWindowDate": "03/11/2027",
+      "firstVisibleDate": "07/15/2026",
+      "lastVisibleDate": "07/15/2026",
+      "maxConsecutiveAvailableArrivals": 0,
+      "maxConsecutiveFutureAvailableArrivals": 0,
+      "availableArrivalRanges": [],
+      "futureAvailableArrivalRanges": [],
+      "arrivalStatuses": [
+        {
+          "date": "07/15/2026",
+          "status": "X",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ]
+    },
+    {
+      "site": "BH24",
+      "loop": "BIRCH",
+      "siteId": "6791",
+      "detailsUrl": "https://utahstateparks.reserveamerica.com/camping/bear-lake-state-park/r/campsiteDetails.do?siteId=6791&contractCode=UT&parkId=343061",
+      "seedDate": "07/15/2026",
+      "seedDateBookableNow": false,
+      "pagesFetched": 1,
+      "maxConsecutiveNights": 0,
+      "maxFutureConsecutiveNights": 0,
+      "availableRanges": [],
+      "futureAvailableRanges": [],
+      "days": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ],
+      "maxReservationWindowDate": "03/11/2027",
+      "firstVisibleDate": "07/15/2026",
+      "lastVisibleDate": "07/15/2026",
+      "maxConsecutiveAvailableArrivals": 0,
+      "maxConsecutiveFutureAvailableArrivals": 0,
+      "availableArrivalRanges": [],
+      "futureAvailableArrivalRanges": [],
+      "arrivalStatuses": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ]
+    },
+    {
+      "site": "BH25",
+      "loop": "BIRCH",
+      "siteId": "6792",
+      "detailsUrl": "https://utahstateparks.reserveamerica.com/camping/bear-lake-state-park/r/campsiteDetails.do?siteId=6792&contractCode=UT&parkId=343061",
+      "seedDate": "07/15/2026",
+      "seedDateBookableNow": false,
+      "pagesFetched": 1,
+      "maxConsecutiveNights": 0,
+      "maxFutureConsecutiveNights": 0,
+      "availableRanges": [],
+      "futureAvailableRanges": [],
+      "days": [
+        {
+          "date": "07/15/2026",
+          "status": "X",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ],
+      "maxReservationWindowDate": "03/11/2027",
+      "firstVisibleDate": "07/15/2026",
+      "lastVisibleDate": "07/15/2026",
+      "maxConsecutiveAvailableArrivals": 0,
+      "maxConsecutiveFutureAvailableArrivals": 0,
+      "availableArrivalRanges": [],
+      "futureAvailableArrivalRanges": [],
+      "arrivalStatuses": [
+        {
+          "date": "07/15/2026",
+          "status": "X",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ]
+    },
+    {
+      "site": "BH26",
+      "loop": "BIRCH",
+      "siteId": "6793",
+      "detailsUrl": "https://utahstateparks.reserveamerica.com/camping/bear-lake-state-park/r/campsiteDetails.do?siteId=6793&contractCode=UT&parkId=343061",
+      "seedDate": "07/15/2026",
+      "seedDateBookableNow": false,
+      "pagesFetched": 1,
+      "maxConsecutiveNights": 0,
+      "maxFutureConsecutiveNights": 0,
+      "availableRanges": [],
+      "futureAvailableRanges": [],
+      "days": [
+        {
+          "date": "07/15/2026",
+          "status": "X",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ],
+      "maxReservationWindowDate": "03/11/2027",
+      "firstVisibleDate": "07/15/2026",
+      "lastVisibleDate": "07/15/2026",
+      "maxConsecutiveAvailableArrivals": 0,
+      "maxConsecutiveFutureAvailableArrivals": 0,
+      "availableArrivalRanges": [],
+      "futureAvailableArrivalRanges": [],
+      "arrivalStatuses": [
+        {
+          "date": "07/15/2026",
+          "status": "X",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ]
+    },
+    {
+      "site": "BH27",
+      "loop": "BIRCH",
+      "siteId": "6794",
+      "detailsUrl": "https://utahstateparks.reserveamerica.com/camping/bear-lake-state-park/r/campsiteDetails.do?siteId=6794&contractCode=UT&parkId=343061",
+      "seedDate": "07/15/2026",
+      "seedDateBookableNow": false,
+      "pagesFetched": 1,
+      "maxConsecutiveNights": 0,
+      "maxFutureConsecutiveNights": 0,
+      "availableRanges": [],
+      "futureAvailableRanges": [],
+      "days": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ],
+      "maxReservationWindowDate": "03/11/2027",
+      "firstVisibleDate": "07/15/2026",
+      "lastVisibleDate": "07/15/2026",
+      "maxConsecutiveAvailableArrivals": 0,
+      "maxConsecutiveFutureAvailableArrivals": 0,
+      "availableArrivalRanges": [],
+      "futureAvailableArrivalRanges": [],
+      "arrivalStatuses": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ]
+    },
+    {
+      "site": "BH28",
+      "loop": "BIRCH",
+      "siteId": "6795",
+      "detailsUrl": "https://utahstateparks.reserveamerica.com/camping/bear-lake-state-park/r/campsiteDetails.do?siteId=6795&contractCode=UT&parkId=343061",
+      "seedDate": "07/15/2026",
+      "seedDateBookableNow": false,
+      "pagesFetched": 1,
+      "maxConsecutiveNights": 0,
+      "maxFutureConsecutiveNights": 0,
+      "availableRanges": [],
+      "futureAvailableRanges": [],
+      "days": [
+        {
+          "date": "07/15/2026",
+          "status": "X",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ],
+      "maxReservationWindowDate": "03/11/2027",
+      "firstVisibleDate": "07/15/2026",
+      "lastVisibleDate": "07/15/2026",
+      "maxConsecutiveAvailableArrivals": 0,
+      "maxConsecutiveFutureAvailableArrivals": 0,
+      "availableArrivalRanges": [],
+      "futureAvailableArrivalRanges": [],
+      "arrivalStatuses": [
+        {
+          "date": "07/15/2026",
+          "status": "X",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ]
+    },
+    {
+      "site": "BH29",
+      "loop": "BIRCH",
+      "siteId": "6796",
+      "detailsUrl": "https://utahstateparks.reserveamerica.com/camping/bear-lake-state-park/r/campsiteDetails.do?siteId=6796&contractCode=UT&parkId=343061",
+      "seedDate": "07/15/2026",
+      "seedDateBookableNow": false,
+      "pagesFetched": 1,
+      "maxConsecutiveNights": 0,
+      "maxFutureConsecutiveNights": 0,
+      "availableRanges": [],
+      "futureAvailableRanges": [],
+      "days": [
+        {
+          "date": "07/15/2026",
+          "status": "X",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ],
+      "maxReservationWindowDate": "03/11/2027",
+      "firstVisibleDate": "07/15/2026",
+      "lastVisibleDate": "07/15/2026",
+      "maxConsecutiveAvailableArrivals": 0,
+      "maxConsecutiveFutureAvailableArrivals": 0,
+      "availableArrivalRanges": [],
+      "futureAvailableArrivalRanges": [],
+      "arrivalStatuses": [
+        {
+          "date": "07/15/2026",
+          "status": "X",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ]
+    },
+    {
+      "site": "BH30",
+      "loop": "BIRCH",
+      "siteId": "6797",
+      "detailsUrl": "https://utahstateparks.reserveamerica.com/camping/bear-lake-state-park/r/campsiteDetails.do?siteId=6797&contractCode=UT&parkId=343061",
+      "seedDate": "07/15/2026",
+      "seedDateBookableNow": false,
+      "pagesFetched": 1,
+      "maxConsecutiveNights": 0,
+      "maxFutureConsecutiveNights": 0,
+      "availableRanges": [],
+      "futureAvailableRanges": [],
+      "days": [
+        {
+          "date": "07/15/2026",
+          "status": "X",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ],
+      "maxReservationWindowDate": "03/11/2027",
+      "firstVisibleDate": "07/15/2026",
+      "lastVisibleDate": "07/15/2026",
+      "maxConsecutiveAvailableArrivals": 0,
+      "maxConsecutiveFutureAvailableArrivals": 0,
+      "availableArrivalRanges": [],
+      "futureAvailableArrivalRanges": [],
+      "arrivalStatuses": [
+        {
+          "date": "07/15/2026",
+          "status": "X",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ]
+    },
+    {
+      "site": "BH32",
+      "loop": "BIRCH",
+      "siteId": "6799",
+      "detailsUrl": "https://utahstateparks.reserveamerica.com/camping/bear-lake-state-park/r/campsiteDetails.do?siteId=6799&contractCode=UT&parkId=343061",
+      "seedDate": "07/15/2026",
+      "seedDateBookableNow": false,
+      "pagesFetched": 1,
+      "maxConsecutiveNights": 0,
+      "maxFutureConsecutiveNights": 0,
+      "availableRanges": [],
+      "futureAvailableRanges": [],
+      "days": [
+        {
+          "date": "07/15/2026",
+          "status": "X",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ],
+      "maxReservationWindowDate": "03/11/2027",
+      "firstVisibleDate": "07/15/2026",
+      "lastVisibleDate": "07/15/2026",
+      "maxConsecutiveAvailableArrivals": 0,
+      "maxConsecutiveFutureAvailableArrivals": 0,
+      "availableArrivalRanges": [],
+      "futureAvailableArrivalRanges": [],
+      "arrivalStatuses": [
+        {
+          "date": "07/15/2026",
+          "status": "X",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ]
+    },
+    {
+      "site": "BH33",
+      "loop": "BIRCH",
+      "siteId": "6800",
+      "detailsUrl": "https://utahstateparks.reserveamerica.com/camping/bear-lake-state-park/r/campsiteDetails.do?siteId=6800&contractCode=UT&parkId=343061",
+      "seedDate": "07/15/2026",
+      "seedDateBookableNow": false,
+      "pagesFetched": 1,
+      "maxConsecutiveNights": 0,
+      "maxFutureConsecutiveNights": 0,
+      "availableRanges": [],
+      "futureAvailableRanges": [],
+      "days": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ],
+      "maxReservationWindowDate": "03/11/2027",
+      "firstVisibleDate": "07/15/2026",
+      "lastVisibleDate": "07/15/2026",
+      "maxConsecutiveAvailableArrivals": 0,
+      "maxConsecutiveFutureAvailableArrivals": 0,
+      "availableArrivalRanges": [],
+      "futureAvailableArrivalRanges": [],
+      "arrivalStatuses": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ]
+    },
+    {
+      "site": "BH34",
+      "loop": "BIRCH",
+      "siteId": "6801",
+      "detailsUrl": "https://utahstateparks.reserveamerica.com/camping/bear-lake-state-park/r/campsiteDetails.do?siteId=6801&contractCode=UT&parkId=343061",
+      "seedDate": "07/15/2026",
+      "seedDateBookableNow": false,
+      "pagesFetched": 1,
+      "maxConsecutiveNights": 0,
+      "maxFutureConsecutiveNights": 0,
+      "availableRanges": [],
+      "futureAvailableRanges": [],
+      "days": [
+        {
+          "date": "07/15/2026",
+          "status": "X",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ],
+      "maxReservationWindowDate": "03/11/2027",
+      "firstVisibleDate": "07/15/2026",
+      "lastVisibleDate": "07/15/2026",
+      "maxConsecutiveAvailableArrivals": 0,
+      "maxConsecutiveFutureAvailableArrivals": 0,
+      "availableArrivalRanges": [],
+      "futureAvailableArrivalRanges": [],
+      "arrivalStatuses": [
+        {
+          "date": "07/15/2026",
+          "status": "X",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ]
+    },
+    {
+      "site": "BH35",
+      "loop": "BIRCH",
+      "siteId": "6802",
+      "detailsUrl": "https://utahstateparks.reserveamerica.com/camping/bear-lake-state-park/r/campsiteDetails.do?siteId=6802&contractCode=UT&parkId=343061",
+      "seedDate": "07/15/2026",
+      "seedDateBookableNow": false,
+      "pagesFetched": 1,
+      "maxConsecutiveNights": 0,
+      "maxFutureConsecutiveNights": 0,
+      "availableRanges": [],
+      "futureAvailableRanges": [],
+      "days": [
+        {
+          "date": "07/15/2026",
+          "status": "X",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ],
+      "maxReservationWindowDate": "03/11/2027",
+      "firstVisibleDate": "07/15/2026",
+      "lastVisibleDate": "07/15/2026",
+      "maxConsecutiveAvailableArrivals": 0,
+      "maxConsecutiveFutureAvailableArrivals": 0,
+      "availableArrivalRanges": [],
+      "futureAvailableArrivalRanges": [],
+      "arrivalStatuses": [
+        {
+          "date": "07/15/2026",
+          "status": "X",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ]
+    },
+    {
+      "site": "BH36",
+      "loop": "BIRCH",
+      "siteId": "6803",
+      "detailsUrl": "https://utahstateparks.reserveamerica.com/camping/bear-lake-state-park/r/campsiteDetails.do?siteId=6803&contractCode=UT&parkId=343061",
+      "seedDate": "07/15/2026",
+      "seedDateBookableNow": false,
+      "pagesFetched": 1,
+      "maxConsecutiveNights": 0,
+      "maxFutureConsecutiveNights": 0,
+      "availableRanges": [],
+      "futureAvailableRanges": [],
+      "days": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ],
+      "maxReservationWindowDate": "03/11/2027",
+      "firstVisibleDate": "07/15/2026",
+      "lastVisibleDate": "07/15/2026",
+      "maxConsecutiveAvailableArrivals": 0,
+      "maxConsecutiveFutureAvailableArrivals": 0,
+      "availableArrivalRanges": [],
+      "futureAvailableArrivalRanges": [],
+      "arrivalStatuses": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ]
+    },
+    {
+      "site": "BH37",
+      "loop": "BIRCH",
+      "siteId": "6804",
+      "detailsUrl": "https://utahstateparks.reserveamerica.com/camping/bear-lake-state-park/r/campsiteDetails.do?siteId=6804&contractCode=UT&parkId=343061",
+      "seedDate": "07/15/2026",
+      "seedDateBookableNow": false,
+      "pagesFetched": 1,
+      "maxConsecutiveNights": 0,
+      "maxFutureConsecutiveNights": 0,
+      "availableRanges": [],
+      "futureAvailableRanges": [],
+      "days": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ],
+      "maxReservationWindowDate": "03/11/2027",
+      "firstVisibleDate": "07/15/2026",
+      "lastVisibleDate": "07/15/2026",
+      "maxConsecutiveAvailableArrivals": 0,
+      "maxConsecutiveFutureAvailableArrivals": 0,
+      "availableArrivalRanges": [],
+      "futureAvailableArrivalRanges": [],
+      "arrivalStatuses": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ]
+    },
+    {
+      "site": "BH38",
+      "loop": "BIRCH",
+      "siteId": "6805",
+      "detailsUrl": "https://utahstateparks.reserveamerica.com/camping/bear-lake-state-park/r/campsiteDetails.do?siteId=6805&contractCode=UT&parkId=343061",
+      "seedDate": "07/15/2026",
+      "seedDateBookableNow": false,
+      "pagesFetched": 1,
+      "maxConsecutiveNights": 0,
+      "maxFutureConsecutiveNights": 0,
+      "availableRanges": [],
+      "futureAvailableRanges": [],
+      "days": [
+        {
+          "date": "07/15/2026",
+          "status": "X",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ],
+      "maxReservationWindowDate": "03/11/2027",
+      "firstVisibleDate": "07/15/2026",
+      "lastVisibleDate": "07/15/2026",
+      "maxConsecutiveAvailableArrivals": 0,
+      "maxConsecutiveFutureAvailableArrivals": 0,
+      "availableArrivalRanges": [],
+      "futureAvailableArrivalRanges": [],
+      "arrivalStatuses": [
+        {
+          "date": "07/15/2026",
+          "status": "X",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ]
+    },
+    {
+      "site": "BH39",
+      "loop": "BIRCH",
+      "siteId": "6806",
+      "detailsUrl": "https://utahstateparks.reserveamerica.com/camping/bear-lake-state-park/r/campsiteDetails.do?siteId=6806&contractCode=UT&parkId=343061",
+      "seedDate": "07/15/2026",
+      "seedDateBookableNow": false,
+      "pagesFetched": 1,
+      "maxConsecutiveNights": 0,
+      "maxFutureConsecutiveNights": 0,
+      "availableRanges": [],
+      "futureAvailableRanges": [],
+      "days": [
+        {
+          "date": "07/15/2026",
+          "status": "X",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ],
+      "maxReservationWindowDate": "03/11/2027",
+      "firstVisibleDate": "07/15/2026",
+      "lastVisibleDate": "07/15/2026",
+      "maxConsecutiveAvailableArrivals": 0,
+      "maxConsecutiveFutureAvailableArrivals": 0,
+      "availableArrivalRanges": [],
+      "futureAvailableArrivalRanges": [],
+      "arrivalStatuses": [
+        {
+          "date": "07/15/2026",
+          "status": "X",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ]
+    },
+    {
+      "site": "BH40",
+      "loop": "BIRCH",
+      "siteId": "6807",
+      "detailsUrl": "https://utahstateparks.reserveamerica.com/camping/bear-lake-state-park/r/campsiteDetails.do?siteId=6807&contractCode=UT&parkId=343061",
+      "seedDate": "07/15/2026",
+      "seedDateBookableNow": false,
+      "pagesFetched": 1,
+      "maxConsecutiveNights": 0,
+      "maxFutureConsecutiveNights": 0,
+      "availableRanges": [],
+      "futureAvailableRanges": [],
+      "days": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ],
+      "maxReservationWindowDate": "03/11/2027",
+      "firstVisibleDate": "07/15/2026",
+      "lastVisibleDate": "07/15/2026",
+      "maxConsecutiveAvailableArrivals": 0,
+      "maxConsecutiveFutureAvailableArrivals": 0,
+      "availableArrivalRanges": [],
+      "futureAvailableArrivalRanges": [],
+      "arrivalStatuses": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ]
+    },
+    {
+      "site": "BH41",
+      "loop": "BIRCH",
+      "siteId": "6808",
+      "detailsUrl": "https://utahstateparks.reserveamerica.com/camping/bear-lake-state-park/r/campsiteDetails.do?siteId=6808&contractCode=UT&parkId=343061",
+      "seedDate": "07/15/2026",
+      "seedDateBookableNow": false,
+      "pagesFetched": 1,
+      "maxConsecutiveNights": 0,
+      "maxFutureConsecutiveNights": 0,
+      "availableRanges": [],
+      "futureAvailableRanges": [],
+      "days": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ],
+      "maxReservationWindowDate": "03/11/2027",
+      "firstVisibleDate": "07/15/2026",
+      "lastVisibleDate": "07/15/2026",
+      "maxConsecutiveAvailableArrivals": 0,
+      "maxConsecutiveFutureAvailableArrivals": 0,
+      "availableArrivalRanges": [],
+      "futureAvailableArrivalRanges": [],
+      "arrivalStatuses": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ]
+    },
+    {
+      "site": "BH42",
+      "loop": "BIRCH",
+      "siteId": "6809",
+      "detailsUrl": "https://utahstateparks.reserveamerica.com/camping/bear-lake-state-park/r/campsiteDetails.do?siteId=6809&contractCode=UT&parkId=343061",
+      "seedDate": "07/15/2026",
+      "seedDateBookableNow": false,
+      "pagesFetched": 1,
+      "maxConsecutiveNights": 0,
+      "maxFutureConsecutiveNights": 0,
+      "availableRanges": [],
+      "futureAvailableRanges": [],
+      "days": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ],
+      "maxReservationWindowDate": "03/11/2027",
+      "firstVisibleDate": "07/15/2026",
+      "lastVisibleDate": "07/15/2026",
+      "maxConsecutiveAvailableArrivals": 0,
+      "maxConsecutiveFutureAvailableArrivals": 0,
+      "availableArrivalRanges": [],
+      "futureAvailableArrivalRanges": [],
+      "arrivalStatuses": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ]
+    },
+    {
+      "site": "BH43",
+      "loop": "BIRCH",
+      "siteId": "6810",
+      "detailsUrl": "https://utahstateparks.reserveamerica.com/camping/bear-lake-state-park/r/campsiteDetails.do?siteId=6810&contractCode=UT&parkId=343061",
+      "seedDate": "07/15/2026",
+      "seedDateBookableNow": false,
+      "pagesFetched": 1,
+      "maxConsecutiveNights": 0,
+      "maxFutureConsecutiveNights": 0,
+      "availableRanges": [],
+      "futureAvailableRanges": [],
+      "days": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ],
+      "maxReservationWindowDate": "03/11/2027",
+      "firstVisibleDate": "07/15/2026",
+      "lastVisibleDate": "07/15/2026",
+      "maxConsecutiveAvailableArrivals": 0,
+      "maxConsecutiveFutureAvailableArrivals": 0,
+      "availableArrivalRanges": [],
+      "futureAvailableArrivalRanges": [],
+      "arrivalStatuses": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ]
+    },
+    {
+      "site": "BH44",
+      "loop": "BIRCH",
+      "siteId": "6811",
+      "detailsUrl": "https://utahstateparks.reserveamerica.com/camping/bear-lake-state-park/r/campsiteDetails.do?siteId=6811&contractCode=UT&parkId=343061",
+      "seedDate": "07/15/2026",
+      "seedDateBookableNow": false,
+      "pagesFetched": 1,
+      "maxConsecutiveNights": 0,
+      "maxFutureConsecutiveNights": 0,
+      "availableRanges": [],
+      "futureAvailableRanges": [],
+      "days": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ],
+      "maxReservationWindowDate": "03/11/2027",
+      "firstVisibleDate": "07/15/2026",
+      "lastVisibleDate": "07/15/2026",
+      "maxConsecutiveAvailableArrivals": 0,
+      "maxConsecutiveFutureAvailableArrivals": 0,
+      "availableArrivalRanges": [],
+      "futureAvailableArrivalRanges": [],
+      "arrivalStatuses": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ]
+    },
+    {
+      "site": "BH45",
+      "loop": "BIRCH",
+      "siteId": "6812",
+      "detailsUrl": "https://utahstateparks.reserveamerica.com/camping/bear-lake-state-park/r/campsiteDetails.do?siteId=6812&contractCode=UT&parkId=343061",
+      "seedDate": "07/15/2026",
+      "seedDateBookableNow": false,
+      "pagesFetched": 1,
+      "maxConsecutiveNights": 0,
+      "maxFutureConsecutiveNights": 0,
+      "availableRanges": [],
+      "futureAvailableRanges": [],
+      "days": [
+        {
+          "date": "07/15/2026",
+          "status": "X",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ],
+      "maxReservationWindowDate": "03/11/2027",
+      "firstVisibleDate": "07/15/2026",
+      "lastVisibleDate": "07/15/2026",
+      "maxConsecutiveAvailableArrivals": 0,
+      "maxConsecutiveFutureAvailableArrivals": 0,
+      "availableArrivalRanges": [],
+      "futureAvailableArrivalRanges": [],
+      "arrivalStatuses": [
+        {
+          "date": "07/15/2026",
+          "status": "X",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ]
+    },
+    {
+      "site": "BH47",
+      "loop": "BIRCH",
+      "siteId": "6814",
+      "detailsUrl": "https://utahstateparks.reserveamerica.com/camping/bear-lake-state-park/r/campsiteDetails.do?siteId=6814&contractCode=UT&parkId=343061",
+      "seedDate": "07/15/2026",
+      "seedDateBookableNow": false,
+      "pagesFetched": 1,
+      "maxConsecutiveNights": 0,
+      "maxFutureConsecutiveNights": 0,
+      "availableRanges": [],
+      "futureAvailableRanges": [],
+      "days": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ],
+      "maxReservationWindowDate": "03/11/2027",
+      "firstVisibleDate": "07/15/2026",
+      "lastVisibleDate": "07/15/2026",
+      "maxConsecutiveAvailableArrivals": 0,
+      "maxConsecutiveFutureAvailableArrivals": 0,
+      "availableArrivalRanges": [],
+      "futureAvailableArrivalRanges": [],
+      "arrivalStatuses": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ]
+    },
+    {
+      "site": "BH48",
+      "loop": "BIRCH",
+      "siteId": "6815",
+      "detailsUrl": "https://utahstateparks.reserveamerica.com/camping/bear-lake-state-park/r/campsiteDetails.do?siteId=6815&contractCode=UT&parkId=343061",
+      "seedDate": "07/15/2026",
+      "seedDateBookableNow": false,
+      "pagesFetched": 1,
+      "maxConsecutiveNights": 0,
+      "maxFutureConsecutiveNights": 0,
+      "availableRanges": [],
+      "futureAvailableRanges": [],
+      "days": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ],
+      "maxReservationWindowDate": "03/11/2027",
+      "firstVisibleDate": "07/15/2026",
+      "lastVisibleDate": "07/15/2026",
+      "maxConsecutiveAvailableArrivals": 0,
+      "maxConsecutiveFutureAvailableArrivals": 0,
+      "availableArrivalRanges": [],
+      "futureAvailableArrivalRanges": [],
+      "arrivalStatuses": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ]
+    },
+    {
+      "site": "BH49",
+      "loop": "BIRCH",
+      "siteId": "6816",
+      "detailsUrl": "https://utahstateparks.reserveamerica.com/camping/bear-lake-state-park/r/campsiteDetails.do?siteId=6816&contractCode=UT&parkId=343061",
+      "seedDate": "07/15/2026",
+      "seedDateBookableNow": false,
+      "pagesFetched": 1,
+      "maxConsecutiveNights": 0,
+      "maxFutureConsecutiveNights": 0,
+      "availableRanges": [],
+      "futureAvailableRanges": [],
+      "days": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ],
+      "maxReservationWindowDate": "03/11/2027",
+      "firstVisibleDate": "07/15/2026",
+      "lastVisibleDate": "07/15/2026",
+      "maxConsecutiveAvailableArrivals": 0,
+      "maxConsecutiveFutureAvailableArrivals": 0,
+      "availableArrivalRanges": [],
+      "futureAvailableArrivalRanges": [],
+      "arrivalStatuses": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ]
+    },
+    {
+      "site": "BH50",
+      "loop": "BIRCH",
+      "siteId": "6817",
+      "detailsUrl": "https://utahstateparks.reserveamerica.com/camping/bear-lake-state-park/r/campsiteDetails.do?siteId=6817&contractCode=UT&parkId=343061",
+      "seedDate": "07/15/2026",
+      "seedDateBookableNow": false,
+      "pagesFetched": 1,
+      "maxConsecutiveNights": 0,
+      "maxFutureConsecutiveNights": 0,
+      "availableRanges": [],
+      "futureAvailableRanges": [],
+      "days": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ],
+      "maxReservationWindowDate": "03/11/2027",
+      "firstVisibleDate": "07/15/2026",
+      "lastVisibleDate": "07/15/2026",
+      "maxConsecutiveAvailableArrivals": 0,
+      "maxConsecutiveFutureAvailableArrivals": 0,
+      "availableArrivalRanges": [],
+      "futureAvailableArrivalRanges": [],
+      "arrivalStatuses": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ]
+    },
+    {
+      "site": "BH51",
+      "loop": "BIRCH",
+      "siteId": "6818",
+      "detailsUrl": "https://utahstateparks.reserveamerica.com/camping/bear-lake-state-park/r/campsiteDetails.do?siteId=6818&contractCode=UT&parkId=343061",
+      "seedDate": "07/15/2026",
+      "seedDateBookableNow": false,
+      "pagesFetched": 1,
+      "maxConsecutiveNights": 0,
+      "maxFutureConsecutiveNights": 0,
+      "availableRanges": [],
+      "futureAvailableRanges": [],
+      "days": [
+        {
+          "date": "07/15/2026",
+          "status": "X",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ],
+      "maxReservationWindowDate": "03/11/2027",
+      "firstVisibleDate": "07/15/2026",
+      "lastVisibleDate": "07/15/2026",
+      "maxConsecutiveAvailableArrivals": 0,
+      "maxConsecutiveFutureAvailableArrivals": 0,
+      "availableArrivalRanges": [],
+      "futureAvailableArrivalRanges": [],
+      "arrivalStatuses": [
+        {
+          "date": "07/15/2026",
+          "status": "X",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ]
+    },
+    {
+      "site": "BH52",
+      "loop": "BIRCH",
+      "siteId": "6819",
+      "detailsUrl": "https://utahstateparks.reserveamerica.com/camping/bear-lake-state-park/r/campsiteDetails.do?siteId=6819&contractCode=UT&parkId=343061",
+      "seedDate": "07/15/2026",
+      "seedDateBookableNow": false,
+      "pagesFetched": 1,
+      "maxConsecutiveNights": 0,
+      "maxFutureConsecutiveNights": 0,
+      "availableRanges": [],
+      "futureAvailableRanges": [],
+      "days": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ],
+      "maxReservationWindowDate": "03/11/2027",
+      "firstVisibleDate": "07/15/2026",
+      "lastVisibleDate": "07/15/2026",
+      "maxConsecutiveAvailableArrivals": 0,
+      "maxConsecutiveFutureAvailableArrivals": 0,
+      "availableArrivalRanges": [],
+      "futureAvailableArrivalRanges": [],
+      "arrivalStatuses": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ]
+    },
+    {
+      "site": "BH53",
+      "loop": "BIRCH",
+      "siteId": "6820",
+      "detailsUrl": "https://utahstateparks.reserveamerica.com/camping/bear-lake-state-park/r/campsiteDetails.do?siteId=6820&contractCode=UT&parkId=343061",
+      "seedDate": "07/15/2026",
+      "seedDateBookableNow": false,
+      "pagesFetched": 1,
+      "maxConsecutiveNights": 0,
+      "maxFutureConsecutiveNights": 0,
+      "availableRanges": [],
+      "futureAvailableRanges": [],
+      "days": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ],
+      "maxReservationWindowDate": "03/11/2027",
+      "firstVisibleDate": "07/15/2026",
+      "lastVisibleDate": "07/15/2026",
+      "maxConsecutiveAvailableArrivals": 0,
+      "maxConsecutiveFutureAvailableArrivals": 0,
+      "availableArrivalRanges": [],
+      "futureAvailableArrivalRanges": [],
+      "arrivalStatuses": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ]
+    },
+    {
+      "site": "BH54",
+      "loop": "BIRCH",
+      "siteId": "6821",
+      "detailsUrl": "https://utahstateparks.reserveamerica.com/camping/bear-lake-state-park/r/campsiteDetails.do?siteId=6821&contractCode=UT&parkId=343061",
+      "seedDate": "07/15/2026",
+      "seedDateBookableNow": false,
+      "pagesFetched": 1,
+      "maxConsecutiveNights": 0,
+      "maxFutureConsecutiveNights": 0,
+      "availableRanges": [],
+      "futureAvailableRanges": [],
+      "days": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ],
+      "maxReservationWindowDate": "03/11/2027",
+      "firstVisibleDate": "07/15/2026",
+      "lastVisibleDate": "07/15/2026",
+      "maxConsecutiveAvailableArrivals": 0,
+      "maxConsecutiveFutureAvailableArrivals": 0,
+      "availableArrivalRanges": [],
+      "futureAvailableArrivalRanges": [],
+      "arrivalStatuses": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ]
+    },
+    {
+      "site": "BH55",
+      "loop": "BIRCH",
+      "siteId": "6822",
+      "detailsUrl": "https://utahstateparks.reserveamerica.com/camping/bear-lake-state-park/r/campsiteDetails.do?siteId=6822&contractCode=UT&parkId=343061",
+      "seedDate": "07/15/2026",
+      "seedDateBookableNow": false,
+      "pagesFetched": 1,
+      "maxConsecutiveNights": 0,
+      "maxFutureConsecutiveNights": 0,
+      "availableRanges": [],
+      "futureAvailableRanges": [],
+      "days": [
+        {
+          "date": "07/15/2026",
+          "status": "X",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ],
+      "maxReservationWindowDate": "03/11/2027",
+      "firstVisibleDate": "07/15/2026",
+      "lastVisibleDate": "07/15/2026",
+      "maxConsecutiveAvailableArrivals": 0,
+      "maxConsecutiveFutureAvailableArrivals": 0,
+      "availableArrivalRanges": [],
+      "futureAvailableArrivalRanges": [],
+      "arrivalStatuses": [
+        {
+          "date": "07/15/2026",
+          "status": "X",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ]
+    },
+    {
+      "site": "BH56",
+      "loop": "BIRCH",
+      "siteId": "6823",
+      "detailsUrl": "https://utahstateparks.reserveamerica.com/camping/bear-lake-state-park/r/campsiteDetails.do?siteId=6823&contractCode=UT&parkId=343061",
+      "seedDate": "07/15/2026",
+      "seedDateBookableNow": false,
+      "pagesFetched": 1,
+      "maxConsecutiveNights": 0,
+      "maxFutureConsecutiveNights": 0,
+      "availableRanges": [],
+      "futureAvailableRanges": [],
+      "days": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ],
+      "maxReservationWindowDate": "03/11/2027",
+      "firstVisibleDate": "07/15/2026",
+      "lastVisibleDate": "07/15/2026",
+      "maxConsecutiveAvailableArrivals": 0,
+      "maxConsecutiveFutureAvailableArrivals": 0,
+      "availableArrivalRanges": [],
+      "futureAvailableArrivalRanges": [],
+      "arrivalStatuses": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ]
+    },
+    {
+      "site": "BH57",
+      "loop": "BIRCH",
+      "siteId": "6824",
+      "detailsUrl": "https://utahstateparks.reserveamerica.com/camping/bear-lake-state-park/r/campsiteDetails.do?siteId=6824&contractCode=UT&parkId=343061",
+      "seedDate": "07/15/2026",
+      "seedDateBookableNow": false,
+      "pagesFetched": 1,
+      "maxConsecutiveNights": 0,
+      "maxFutureConsecutiveNights": 0,
+      "availableRanges": [],
+      "futureAvailableRanges": [],
+      "days": [
+        {
+          "date": "07/15/2026",
+          "status": "X",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ],
+      "maxReservationWindowDate": "03/11/2027",
+      "firstVisibleDate": "07/15/2026",
+      "lastVisibleDate": "07/15/2026",
+      "maxConsecutiveAvailableArrivals": 0,
+      "maxConsecutiveFutureAvailableArrivals": 0,
+      "availableArrivalRanges": [],
+      "futureAvailableArrivalRanges": [],
+      "arrivalStatuses": [
+        {
+          "date": "07/15/2026",
+          "status": "X",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ]
+    },
+    {
+      "site": "BH58",
+      "loop": "BIRCH",
+      "siteId": "6825",
+      "detailsUrl": "https://utahstateparks.reserveamerica.com/camping/bear-lake-state-park/r/campsiteDetails.do?siteId=6825&contractCode=UT&parkId=343061",
+      "seedDate": "07/15/2026",
+      "seedDateBookableNow": false,
+      "pagesFetched": 1,
+      "maxConsecutiveNights": 0,
+      "maxFutureConsecutiveNights": 0,
+      "availableRanges": [],
+      "futureAvailableRanges": [],
+      "days": [
+        {
+          "date": "07/15/2026",
+          "status": "X",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ],
+      "maxReservationWindowDate": "03/11/2027",
+      "firstVisibleDate": "07/15/2026",
+      "lastVisibleDate": "07/15/2026",
+      "maxConsecutiveAvailableArrivals": 0,
+      "maxConsecutiveFutureAvailableArrivals": 0,
+      "availableArrivalRanges": [],
+      "futureAvailableArrivalRanges": [],
+      "arrivalStatuses": [
+        {
+          "date": "07/15/2026",
+          "status": "X",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ]
+    },
+    {
+      "site": "BH60",
+      "loop": "BIRCH",
+      "siteId": "6827",
+      "detailsUrl": "https://utahstateparks.reserveamerica.com/camping/bear-lake-state-park/r/campsiteDetails.do?siteId=6827&contractCode=UT&parkId=343061",
+      "seedDate": "07/15/2026",
+      "seedDateBookableNow": false,
+      "pagesFetched": 1,
+      "maxConsecutiveNights": 0,
+      "maxFutureConsecutiveNights": 0,
+      "availableRanges": [],
+      "futureAvailableRanges": [],
+      "days": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ],
+      "maxReservationWindowDate": "03/11/2027",
+      "firstVisibleDate": "07/15/2026",
+      "lastVisibleDate": "07/15/2026",
+      "maxConsecutiveAvailableArrivals": 0,
+      "maxConsecutiveFutureAvailableArrivals": 0,
+      "availableArrivalRanges": [],
+      "futureAvailableArrivalRanges": [],
+      "arrivalStatuses": [
+        {
+          "date": "07/15/2026",
+          "status": "R",
+          "reservable": false,
+          "futureReservable": false
+        }
+      ]
+    }
+  ],
+  "dateTo": "07/15/2026",
+  "siteListSource": "/Users/jasricha/Documents/Github_Personal/bear-lake-booker/camp sites/preferred-sites.md"
+}
