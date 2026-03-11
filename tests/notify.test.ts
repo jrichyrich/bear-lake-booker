@@ -28,6 +28,7 @@ function buildSummary(overrides: Partial<RunSummary> = {}): RunSummary {
     headed: true,
     profileMode: 'persistent',
     notificationProfile: 'test',
+    availabilitySnapshot: undefined,
     accountsConfigured: ['lisarichards1984@gmail.com', 'jrichards1981@gmail.com'],
     accountsReady: ['lisarichards1984@gmail.com', 'jrichards1981@gmail.com'],
     accountsWithHolds: ['lisarichards1984@gmail.com'],

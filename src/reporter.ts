@@ -103,6 +103,7 @@ export interface RunSummary {
   headed: boolean;
   profileMode: string;
   notificationProfile: 'test' | 'production';
+  availabilitySnapshot: string | undefined;
   accountsConfigured: string[];
   accountsReady: string[];
   accountsWithHolds: string[];

@@ -13,6 +13,9 @@ type RankedSiteSections = {
 export type LoadedSiteList = {
   siteIds: string[];
   sourcePath: string;
+  topChoices: string[];
+  backups: string[];
+  exclude: string[];
 };
 
 function dedupeSiteIds(siteIds: string[]): string[] {
@@ -123,5 +126,8 @@ export function loadSiteList(siteList: string, baseDir?: string): LoadedSiteList
   return {
     siteIds,
     sourcePath,
+    topChoices: sections.topChoices.filter((siteId) => siteIds.includes(siteId)),
+    backups: sections.backups.filter((siteId) => siteIds.includes(siteId)),
+    exclude: sections.exclude,
   };
 }

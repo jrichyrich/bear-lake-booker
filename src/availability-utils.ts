@@ -11,6 +11,7 @@ export type AvailabilityRow = {
   pageCount: number;
   requestedSites: string[];
   siteListSource?: string;
+  snapshotRankedSites?: string[];
 };
 
 export function parseDateString(value: string): Date {
@@ -64,6 +65,7 @@ export function buildAvailabilityRow(
   searchResult: SearchResult,
   requestedSites: string[],
   siteListSource?: string,
+  snapshotRankedSites?: string[],
   now = new Date(),
 ): AvailabilityRow {
   const normalizedRequestedSites = normalizeRequestedSites(requestedSites);
@@ -103,5 +105,6 @@ export function buildAvailabilityRow(
     pageCount: searchResult.pageCount,
     requestedSites: normalizedRequestedSites,
     ...(siteListSource ? { siteListSource } : {}),
+    ...(snapshotRankedSites && snapshotRankedSites.length > 0 ? { snapshotRankedSites } : {}),
   };
 }

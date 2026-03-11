@@ -2,18 +2,7 @@ import { writeFile } from 'fs/promises';
 import { dirname, extname, resolve } from 'path';
 import { mkdir } from 'fs/promises';
 import type { SiteCalendarResult } from './site-calendar';
-
-export type SiteAvailabilityReport = {
-  searchedAt: string;
-  loop: string;
-  stayLength: string;
-  seedDate: string;
-  dateTo?: string;
-  requestedSites: string[];
-  missingSites: string[];
-  siteListSource?: string;
-  results: SiteCalendarResult[];
-};
+import type { AvailabilitySnapshot } from './availability-snapshots';
 
 function formatRanges(result: SiteCalendarResult): string {
   if (result.availableRanges.length === 0) {
@@ -64,11 +53,11 @@ export async function mapWithConcurrency<T, R>(
   return results;
 }
 
-export function buildSiteAvailabilityMarkdownReport(report: SiteAvailabilityReport): string {
+export function buildSiteAvailabilityMarkdownReport(report: AvailabilitySnapshot): string {
   const lines: string[] = [
     '# Site Availability Report',
     '',
-    `- Searched at: ${report.searchedAt}`,
+    `- Searched at: ${report.generatedAt}`,
     `- Loop: ${report.loop}`,
     `- Stay length: ${report.stayLength}`,
     `- Seed date: ${report.seedDate}`,
@@ -105,7 +94,7 @@ export function buildSiteAvailabilityMarkdownReport(report: SiteAvailabilityRepo
   return `${lines.join('\n').trim()}\n`;
 }
 
-export function buildSiteAvailabilityCsvReport(report: SiteAvailabilityReport): string {
+export function buildSiteAvailabilityCsvReport(report: AvailabilitySnapshot): string {
   const header = [
     'site',
     'loop',
@@ -139,7 +128,7 @@ export function buildSiteAvailabilityCsvReport(report: SiteAvailabilityReport): 
     .join('\n');
 }
 
-export async function writeSiteAvailabilityReport(report: SiteAvailabilityReport, outputPath: string): Promise<string> {
+export async function writeSiteAvailabilityReport(report: AvailabilitySnapshot, outputPath: string): Promise<string> {
   const resolvedPath = resolve(outputPath);
   const extension = extname(resolvedPath).toLowerCase();
 

@@ -1,5 +1,6 @@
 import { parseArgs } from 'util';
 import { searchAvailability, type SearchResult } from './reserveamerica';
+import { loadAvailabilitySnapshot, rankSiteIdsWithSnapshot } from './availability-snapshots';
 import { loadSiteList } from './site-lists';
 import { buildAvailabilityRow, buildDateRange, normalizeRequestedSites, type AvailabilityRow } from './availability-utils';
 
@@ -11,6 +12,7 @@ const { values } = parseArgs({
     loop: { type: 'string', short: 'o', default: 'BIRCH' },
     sites: { type: 'string' },
     siteList: { type: 'string' },
+    availabilitySnapshot: { type: 'string' },
     json: { type: 'boolean', default: false },
     help: { type: 'boolean', short: 'h' },
   },
@@ -30,6 +32,7 @@ Options:
   -o, --loop <name>            Loop name [default: BIRCH]
   --sites <csv>                Explicit site allowlist override
   --siteList <name-or-path>    Ranked site list from camp sites or a path
+  --availabilitySnapshot <path>  Annotate output using a stored availability snapshot
   --json                       Print machine-readable JSON after the console summary
   -h, --help                   Show help
   `);
@@ -50,6 +53,12 @@ const requestedSites = explicitSites.length > 0
   ? explicitSites
   : loadedSiteList?.siteIds ?? [];
 const siteListSource = loadedSiteList?.sourcePath;
+const availabilitySnapshotPath = typeof values.availabilitySnapshot === 'string'
+  ? values.availabilitySnapshot
+  : undefined;
+const availabilitySnapshot = availabilitySnapshotPath
+  ? loadAvailabilitySnapshot(availabilitySnapshotPath)
+  : null;
 const printJson = values.json === true;
 
 type AvailabilityReport = {
@@ -66,6 +75,9 @@ function printRow(row: AvailabilityRow): void {
   console.log(`  available (${row.availableSites.length}): ${formatSiteBucket(row.availableSites)}`);
   console.log(`  not available (${row.unavailableSites.length}): ${formatSiteBucket(row.unavailableSites)}`);
   console.log(`  not returned (${row.notReturnedSites.length}): ${formatSiteBucket(row.notReturnedSites)}`);
+  if (row.snapshotRankedSites && row.snapshotRankedSites.length > 0) {
+    console.log(`  snapshot-ranked: ${formatSiteBucket(row.snapshotRankedSites.slice(0, 10))}`);
+  }
 }
 
 function formatSiteBucket(siteIds: string[]): string {
@@ -88,6 +100,9 @@ async function main(): Promise<void> {
   if (siteListSource) {
     console.log(`Site list source: ${siteListSource}`);
   }
+  if (availabilitySnapshotPath) {
+    console.log(`Availability snapshot: ${availabilitySnapshotPath}`);
+  }
   console.log('');
 
   for (const date of dates) {
@@ -98,7 +113,8 @@ async function main(): Promise<void> {
       requestedSites,
     });
 
-    const row = buildAvailabilityRow(date, searchResult, requestedSites, siteListSource);
+    const snapshotRankedSites = rankSiteIdsWithSnapshot(requestedSites, availabilitySnapshot);
+    const row = buildAvailabilityRow(date, searchResult, requestedSites, siteListSource, snapshotRankedSites);
     results.push({
       ...row,
       ...(searchResult.requestedSites ? { requestedSites: searchResult.requestedSites } : {}),

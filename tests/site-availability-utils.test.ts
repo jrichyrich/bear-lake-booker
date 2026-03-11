@@ -2,11 +2,12 @@ import {
   buildSiteAvailabilityCsvReport,
   buildSiteAvailabilityMarkdownReport,
   mapWithConcurrency,
-  type SiteAvailabilityReport,
 } from '../src/site-availability-utils';
+import type { AvailabilitySnapshot } from '../src/availability-snapshots';
 
-function makeReport(): SiteAvailabilityReport {
+function makeReport(): AvailabilitySnapshot {
   return {
+    generatedAt: '2026-03-11T02:00:00.000Z',
     searchedAt: '2026-03-11T02:00:00.000Z',
     loop: 'BIRCH',
     stayLength: '1',

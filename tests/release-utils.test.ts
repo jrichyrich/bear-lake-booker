@@ -63,14 +63,16 @@ describe('release-utils', () => {
     expect(buildReleaseRaceArgs([
       '--launchTime', '07:59:59',
       '--siteList', 'preferred-sites',
+      '--availabilitySnapshot', '/repo/camp sites/availability/june.json',
       '-d', '05/22/2026',
       '--book',
-    ], '07:59:59', ['BH03', 'BH09'], 'test', '/repo/camp sites/preferred-sites.md')).toEqual([
+    ], '07:59:59', ['BH03', 'BH09'], 'test', '/repo/camp sites/preferred-sites.md', '/repo/camp sites/availability/june.json')).toEqual([
       '-d', '05/22/2026',
       '--book',
       '--time', '07:59:59',
       '--notificationProfile', 'test',
       '--siteListSource', '/repo/camp sites/preferred-sites.md',
+      '--availabilitySnapshot', '/repo/camp sites/availability/june.json',
       '--sites', 'BH03,BH09',
     ]);
   });

@@ -68,6 +68,9 @@ describe('site lists', () => {
     expect(loadSiteList('preferred-sites', tempDir)).toEqual({
       sourcePath: siteListPath,
       siteIds: ['BH03', 'BH09', 'BH11', 'BH12'],
+      topChoices: ['BH03', 'BH09'],
+      backups: ['BH11', 'BH12'],
+      exclude: ['BH31-HOST'],
     });
   });
 

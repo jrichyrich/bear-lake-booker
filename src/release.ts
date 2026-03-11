@@ -7,6 +7,12 @@ const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 chromium.use(StealthPlugin());
 
 import { searchAvailability } from './reserveamerica';
+import {
+  loadAvailabilitySnapshot,
+  loadLatestAvailabilitySnapshot,
+  resolveLatestAvailabilitySnapshotPath,
+  rankRequestedSitesForCapture,
+} from './availability-snapshots';
 import { inspectCartState } from './automation';
 import { sleep } from './automation';
 import { ensureActiveSession } from './session-manager';
@@ -28,6 +34,7 @@ const { values } = parseArgs({
     accounts: { type: 'string' },
     sites: { type: 'string' },
     siteList: { type: 'string' },
+    availabilitySnapshot: { type: 'string' },
     headed: { type: 'boolean', default: false },
     checkoutAuthMode: { type: 'string' },
     notificationProfile: { type: 'string', default: 'test' },
@@ -56,6 +63,7 @@ Common options:
   --accounts <csv>             Account emails
   --sites <csv>                Explicit site override (skip scout)
   --siteList <name-or-path>    Ranked site list from camp sites or a path
+  --availabilitySnapshot <path>  Rank preferred sites using a stored availability snapshot
   --notificationProfile <name> test or production [default: test]
   --scoutLeadMinutes <mins>    Minutes before launch to freeze scout [default: 2]
   --warmupLeadSeconds <secs>   Seconds before launch to start race warmup [default: 45]
@@ -76,6 +84,9 @@ const explicitSites = typeof values.sites === 'string'
   ? values.sites.split(',').map((site) => site.trim().toUpperCase()).filter(Boolean)
   : [];
 const siteListSpec = typeof values.siteList === 'string' ? values.siteList.trim() : '';
+const explicitAvailabilitySnapshot = typeof values.availabilitySnapshot === 'string'
+  ? values.availabilitySnapshot.trim()
+  : '';
 const requestedAccounts = typeof values.accounts === 'string'
   ? normalizeCliAccounts(values.accounts.split(','), '[Release] ')
   : [undefined];
@@ -150,7 +161,10 @@ async function ensureSessionAndEmptyCart(account?: string): Promise<void> {
   }
 }
 
-async function resolveTargetSites(): Promise<string[]> {
+async function resolveTargetSites(
+  availabilitySnapshot: ReturnType<typeof loadAvailabilitySnapshot> | ReturnType<typeof loadLatestAvailabilitySnapshot>,
+  loadedSiteList: ReturnType<typeof loadSiteList> | null,
+): Promise<string[]> {
   const desiredCount = Math.max(concurrency, requestedAccounts.filter(Boolean).length || 1);
   if (explicitSites.length > 0) {
     return explicitSites;
@@ -162,7 +176,11 @@ async function resolveTargetSites(): Promise<string[]> {
     loop,
   });
   const selectedSites = selectReleaseSites(
-    search.exactDateMatches.map((site) => site.site),
+    rankRequestedSitesForCapture(
+      search.exactDateMatches.map((site) => site.site),
+      availabilitySnapshot,
+      loadedSiteList,
+    ),
     desiredCount,
   );
   if (selectedSites.length === 0) {
@@ -174,6 +192,17 @@ async function resolveTargetSites(): Promise<string[]> {
 async function main(): Promise<void> {
   const schedule = resolveReleaseSchedule(new Date(), launchTime, scoutLeadMinutes, warmupLeadSeconds);
   const loadedSiteList = explicitSites.length === 0 && siteListSpec ? loadSiteList(siteListSpec) : null;
+  const resolvedAvailabilitySnapshotPath = explicitAvailabilitySnapshot
+    || (loadedSiteList
+      ? resolveLatestAvailabilitySnapshotPath({
+          loop,
+          targetDate,
+          siteListSource: loadedSiteList.sourcePath,
+        }) ?? ''
+      : '');
+  const availabilitySnapshot = resolvedAvailabilitySnapshotPath
+    ? loadAvailabilitySnapshot(resolvedAvailabilitySnapshotPath)
+    : null;
 
   console.log('--- Bear Lake Booker: Release / Rehearsal Wrapper ---');
   console.log(`[Release] Target date: ${targetDate}`);
@@ -184,6 +213,9 @@ async function main(): Promise<void> {
   if (loadedSiteList) {
     console.log(`[Release] Site list source: ${loadedSiteList.sourcePath}`);
   }
+  if (availabilitySnapshot) {
+    console.log(`[Release] Availability snapshot: ${resolvedAvailabilitySnapshotPath}`);
+  }
   console.log(`[Release] Accounts: ${requestedAccounts.map((account) => getAccountDisplayName(account)).join(', ')}`);
 
   for (const account of requestedAccounts) {
@@ -193,7 +225,11 @@ async function main(): Promise<void> {
   if (explicitSites.length === 0 && !loadedSiteList) {
     await waitUntil(schedule.scoutAt, 'site scout');
   }
-  const resolvedSites = loadedSiteList?.siteIds ?? await resolveTargetSites();
+  const resolvedSites = rankRequestedSitesForCapture(
+    loadedSiteList?.siteIds ?? await resolveTargetSites(availabilitySnapshot, loadedSiteList),
+    availabilitySnapshot,
+    loadedSiteList,
+  );
 
   console.log('[Release] Resolved launch plan:');
   console.log(`  Date: ${targetDate}`);
@@ -203,6 +239,9 @@ async function main(): Promise<void> {
   console.log(`  Notification profile: ${notificationProfile}`);
   if (loadedSiteList) {
     console.log(`  Site list source: ${loadedSiteList.sourcePath}`);
+  }
+  if (availabilitySnapshot) {
+    console.log(`  Availability snapshot generated: ${availabilitySnapshot.generatedAt}`);
   }
   console.log(`  Sites: ${resolvedSites.join(', ')}`);
   console.log(`  Accounts: ${requestedAccounts.map((account) => getAccountDisplayName(account)).join(', ')}`);
@@ -214,6 +253,7 @@ async function main(): Promise<void> {
     resolvedSites,
     notificationProfile,
     loadedSiteList?.sourcePath,
+    resolvedAvailabilitySnapshotPath || undefined,
   );
   const result = spawnSync('npx', ['tsx', 'src/race.ts', ...raceArgs], {
     stdio: 'inherit',

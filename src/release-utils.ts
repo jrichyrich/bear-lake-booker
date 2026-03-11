@@ -79,6 +79,7 @@ const WRAPPER_ONLY_OPTIONS: StripOptionConfig[] = [
   { name: '--notificationProfile', takesValue: true },
   { name: '--siteList', takesValue: true },
   { name: '--siteListSource', takesValue: true },
+  { name: '--availabilitySnapshot', takesValue: true },
   { name: '--time', takesValue: true },
   { name: '-t', takesValue: true },
   { name: '--sites', takesValue: true },
@@ -90,6 +91,7 @@ export function buildReleaseRaceArgs(
   sites: string[],
   notificationProfile: 'test' | 'production',
   siteListSource?: string,
+  availabilitySnapshot?: string,
 ): string[] {
   const stripped: string[] = [];
 
@@ -113,6 +115,7 @@ export function buildReleaseRaceArgs(
     '--notificationProfile',
     notificationProfile,
     ...(siteListSource ? ['--siteListSource', siteListSource] : []),
+    ...(availabilitySnapshot ? ['--availabilitySnapshot', availabilitySnapshot] : []),
     ...(sites.length > 0 ? ['--sites', sites.join(',')] : []),
   ];
 }

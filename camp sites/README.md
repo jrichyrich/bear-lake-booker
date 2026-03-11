@@ -21,4 +21,6 @@ File format:
 The runtime derives the final allowlist as `Top choices + Backups - Exclude`.
 
 For monthly planning reports:
-- `npm run site-availability -- --dateFrom 07/01/2026 --dateTo 07/31/2026 -l 1 -o BIRCH --siteList preferred-sites --concurrency 4 --out "camp sites/site-availability-2026-07.md"`
+- `npm run site-availability -- --dateFrom 07/01/2026 --dateTo 07/31/2026 -l 1 -o BIRCH --siteList preferred-sites --concurrency 4 --out "camp sites/availability/site-availability-2026-07.md"`
+
+Canonical availability snapshots live in `camp sites/availability/` as JSON. Markdown and CSV reports are derived views and should not be treated as the source of truth for other commands.

@@ -82,7 +82,7 @@ If present, `race.ts` sends one end-of-run inventory summary to each configured 
 - Test session behavior: `npm run test-session`
 - Find an open date: `npm run find-open`
 - Full-loop preferred-site search: `npm run availability -- --dateFrom 07/22/2026 --dateTo 07/27/2026 -l 1 -o BIRCH --siteList preferred-sites`
-- Monthly per-site range report: `npm run site-availability -- --dateFrom 07/01/2026 --dateTo 07/31/2026 -l 1 -o BIRCH --siteList preferred-sites --concurrency 4 --out "camp sites/site-availability-2026-07.md"`
+- Monthly per-site range report: `npm run site-availability -- --dateFrom 07/01/2026 --dateTo 07/31/2026 -l 1 -o BIRCH --siteList preferred-sites --concurrency 4 --out "camp sites/availability/site-availability-2026-07.md"`
 
 ### Validation
 - Type check: `npx tsc --noEmit`
@@ -98,6 +98,7 @@ If present, `race.ts` sends one end-of-run inventory summary to each configured 
 - `--maxHolds <n>`: cap holds in multi mode.
 - `--sites <csv>`: restrict capture to explicit site IDs.
 - `--siteList <name-or-path>`: load ranked allowed sites from `camp sites/<name>.md` or a path.
+- `--availabilitySnapshot <path>`: rank allowed sites using a stored availability snapshot while still relying on live availability.
 - `--headed`: run visible browsers for debugging or manual intervention.
 - `--checkoutAuthMode auto|manual`: choose how checkout re-auth is handled.
 - `--notificationProfile test|production`: choose which iMessage recipient profile gets the final inventory summary.
@@ -128,6 +129,8 @@ The operational shortlist is [`preferred-sites.md`](/Users/jasricha/Documents/Gi
 - `## Exclude`
 
 The runtime derives the final allowlist as `Top choices + Backups - Exclude`. If both `--sites` and `--siteList` are provided, `--sites` still wins.
+
+Availability snapshots live under [`camp sites/availability`](/Users/jasricha/Documents/Github_Personal/bear-lake-booker/camp%20sites/availability). `site-availability` writes canonical JSON snapshots there by default, and Markdown/CSV reports should be treated as derived views of those snapshots.
 
 ## Roadmap
 The main unfinished work is tracked in:

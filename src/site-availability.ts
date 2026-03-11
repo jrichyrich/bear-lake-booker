@@ -1,6 +1,11 @@
 import { parseArgs } from 'util';
 import { loadSiteList } from './site-lists';
 import {
+  buildAvailabilitySnapshotPath,
+  writeAvailabilitySnapshot,
+  type AvailabilitySnapshot,
+} from './availability-snapshots';
+import {
   fetchSiteCalendarAvailability,
   resolveRequestedSiteRecords,
 } from './site-calendar';
@@ -8,7 +13,6 @@ import {
   formatSiteCalendarResult,
   mapWithConcurrency,
   writeSiteAvailabilityReport,
-  type SiteAvailabilityReport,
 } from './site-availability-utils';
 
 const { values } = parseArgs({
@@ -41,7 +45,7 @@ Options:
   --sites <csv>                Explicit site allowlist override
   --siteList <name-or-path>    Ranked site list from camp sites or a path
   --concurrency <n>            Number of site crawls to run in parallel [default: 4]
-  --out <path>                 Write a report file (.md, .csv, or .json)
+  --out <path>                 Write an additional report file (.md, .csv, or .json)
   --json                       Print machine-readable JSON after the console summary
   -h, --help                   Show help
   `);
@@ -81,9 +85,6 @@ async function main(): Promise<void> {
     console.log(`Site list source: ${siteListSource}`);
   }
   console.log(`Concurrency: ${concurrency}`);
-  if (outputPath) {
-    console.log(`Report file: ${outputPath}`);
-  }
   console.log('');
 
   const resolved = await resolveRequestedSiteRecords(dateFrom, stayLength, loop, requestedSites);
@@ -104,7 +105,8 @@ async function main(): Promise<void> {
     console.log(`Missing site IDs (${resolved.missing.length}): ${resolved.missing.join(', ')}`);
   }
 
-  const report: SiteAvailabilityReport = {
+  const report: AvailabilitySnapshot = {
+    generatedAt: new Date().toISOString(),
     searchedAt: new Date().toISOString(),
     loop,
     stayLength,
@@ -116,9 +118,12 @@ async function main(): Promise<void> {
     ...(siteListSource ? { siteListSource } : {}),
   };
 
+  const snapshotPath = writeAvailabilitySnapshot(report);
+  console.log('');
+  console.log(`Wrote availability snapshot to ${snapshotPath}`);
+
   if (outputPath) {
     const writtenPath = await writeSiteAvailabilityReport(report, outputPath);
-    console.log('');
     console.log(`Wrote site availability report to ${writtenPath}`);
   }
 

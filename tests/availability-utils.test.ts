@@ -47,6 +47,7 @@ describe('availability utils', () => {
       }),
       ['BH09', 'BH10', 'BH11'],
       '/tmp/preferred-sites.md',
+      undefined,
       new Date('2026-03-18T15:00:00-06:00'),
     );
 
@@ -66,6 +67,7 @@ describe('availability utils', () => {
         returnedRequestedSites: ['BH09'],
       }),
       ['BH09'],
+      undefined,
       undefined,
       new Date('2026-03-10T07:59:00-06:00'),
     );

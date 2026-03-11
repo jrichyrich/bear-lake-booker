@@ -7,6 +7,7 @@ chromium.use(StealthPlugin());
 import { parseArgs } from 'util';
 import * as fs from 'fs';
 import { searchAvailability, type SiteAvailability } from './reserveamerica';
+import { loadAvailabilitySnapshot, rankRequestedSitesForCapture } from './availability-snapshots';
 import { USER_AGENTS } from './config';
 import {
   normalizeNotificationProfile,
@@ -58,6 +59,7 @@ const { values } = parseArgs({
     sites: { type: 'string' },
     siteList: { type: 'string' },
     siteListSource: { type: 'string' },
+    availabilitySnapshot: { type: 'string' },
     accounts: { type: 'string' },
     notificationProfile: { type: 'string', default: 'test' },
     checkoutAuthMode: { type: 'string' },
@@ -92,6 +94,7 @@ Options:
   --sequential                  Book sites one at a time in a single browser
   --sites <csv>                 Target specific sites (e.g., BH03,BH07,BH09)
   --siteList <name-or-path>     Ranked site list from camp sites or a path
+  --availabilitySnapshot <path> Rank allowed sites using a stored availability snapshot
   --accounts <csv>              Capture into multiple authenticated account emails
   --notificationProfile <name>  test or production [default: test]
   --checkoutAuthMode <mode>     auto or manual [default: manual when headed, else auto]
@@ -125,6 +128,12 @@ const SITE_ALLOWLIST: string[] = EXPLICIT_SITE_ALLOWLIST.length > 0
   ? EXPLICIT_SITE_ALLOWLIST
   : loadedSiteList?.siteIds ?? [];
 const SITE_LIST_SOURCE = loadedSiteList?.sourcePath ?? RESOLVED_SITE_LIST_SOURCE;
+const AVAILABILITY_SNAPSHOT_PATH = typeof values.availabilitySnapshot === 'string'
+  ? values.availabilitySnapshot
+  : undefined;
+const AVAILABILITY_SNAPSHOT = AVAILABILITY_SNAPSHOT_PATH
+  ? loadAvailabilitySnapshot(AVAILABILITY_SNAPSHOT_PATH)
+  : null;
 const LAUNCH_MODE = parseLaunchMode(values.launchMode);
 const CHECKOUT_AUTH_MODE: 'auto' | 'manual' = values.checkoutAuthMode === 'auto'
   ? 'auto'
@@ -844,7 +853,11 @@ async function launchCapture(targetSites: string[]): Promise<CaptureOutcome> {
 
 async function startRace(): Promise<CaptureOutcome> {
   console.log('--- Bear Lake Sniper Mode ---');
-  requestedSitesForRun = getInitialTargetSites(TARGET_TIME ?? undefined, SITE_ALLOWLIST);
+  requestedSitesForRun = rankRequestedSitesForCapture(
+    getInitialTargetSites(TARGET_TIME ?? undefined, SITE_ALLOWLIST),
+    AVAILABILITY_SNAPSHOT,
+    loadedSiteList,
+  );
   if (TARGET_TIME) {
     return launchCapture(requestedSitesForRun);
   }
@@ -862,6 +875,7 @@ async function startRace(): Promise<CaptureOutcome> {
       return 'no-availability';
     }
   }
+  targetSites = rankRequestedSitesForCapture(targetSites, AVAILABILITY_SNAPSHOT, loadedSiteList);
   requestedSitesForRun = targetSites;
   return launchCapture(targetSites);
 }
@@ -893,6 +907,7 @@ startRace()
       headed: IS_HEADED,
       profileMode: PROFILE_MODE,
       notificationProfile: NOTIFICATION_PROFILE,
+      availabilitySnapshot: AVAILABILITY_SNAPSHOT_PATH,
       accountsConfigured: configuredAccounts.map((account) => account.displayName),
       accountsReady: readyAccountsForRun.map((account) => account.displayName),
       accountsWithHolds: Array.from(accountBookers.values())
@@ -960,6 +975,7 @@ startRace()
       headed: IS_HEADED,
       profileMode: PROFILE_MODE,
       notificationProfile: NOTIFICATION_PROFILE,
+      availabilitySnapshot: AVAILABILITY_SNAPSHOT_PATH,
       accountsConfigured: configuredAccounts.map((account) => account.displayName),
       accountsReady: readyAccountsForRun.map((account) => account.displayName),
       accountsWithHolds: Array.from(accountBookers.values())
