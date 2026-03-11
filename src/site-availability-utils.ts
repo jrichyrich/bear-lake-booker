@@ -14,6 +14,16 @@ function formatRanges(result: SiteCalendarResult): string {
     .join('; ');
 }
 
+function formatFutureRanges(result: SiteCalendarResult): string {
+  if (result.futureAvailableRanges.length === 0) {
+    return 'none';
+  }
+
+  return result.futureAvailableRanges
+    .map((range) => `${range.startDate} -> ${range.endDate} (${range.nights} night${range.nights === 1 ? '' : 's'})`)
+    .join('; ');
+}
+
 export function formatSiteCalendarResult(result: SiteCalendarResult): string[] {
   return [
     `${result.site} (${result.loop}) | siteId=${result.siteId} | pages=${result.pagesFetched}`,
@@ -22,8 +32,11 @@ export function formatSiteCalendarResult(result: SiteCalendarResult): string[] {
     `  firstVisibleDate: ${result.firstVisibleDate ?? '-'}`,
     `  lastVisibleDate: ${result.lastVisibleDate ?? '-'}`,
     `  firstAvailableDate: ${result.firstAvailableDate ?? '-'}`,
+    `  firstFutureAvailableDate: ${result.firstFutureAvailableDate ?? '-'}`,
     `  maxConsecutiveNights: ${result.maxConsecutiveNights}`,
+    `  maxFutureConsecutiveNights: ${result.maxFutureConsecutiveNights}`,
     `  availableRanges: ${formatRanges(result)}`,
+    `  futureAvailableRanges: ${formatFutureRanges(result)}`,
   ];
 }
 
@@ -82,12 +95,15 @@ export function buildSiteAvailabilityMarkdownReport(report: AvailabilitySnapshot
     lines.push(`- Site ID: ${result.siteId}`);
     lines.push(`- Pages fetched: ${result.pagesFetched}`);
     lines.push(`- First available date: ${result.firstAvailableDate ?? '-'}`);
+    lines.push(`- First future-available date: ${result.firstFutureAvailableDate ?? '-'}`);
     lines.push(`- Max consecutive nights: ${result.maxConsecutiveNights}`);
+    lines.push(`- Max future consecutive nights: ${result.maxFutureConsecutiveNights}`);
     lines.push(`- First visible date: ${result.firstVisibleDate ?? '-'}`);
     lines.push(`- Last visible date: ${result.lastVisibleDate ?? '-'}`);
     lines.push(`- Booking window open now for seed date: ${result.seedDateBookableNow ? 'yes' : 'no'}`);
     lines.push(`- Max reservation window date: ${result.maxReservationWindowDate ?? '-'}`);
     lines.push(`- Available ranges: ${formatRanges(result)}`);
+    lines.push(`- Future-available ranges: ${formatFutureRanges(result)}`);
     lines.push('');
   }
 
@@ -105,8 +121,11 @@ export function buildSiteAvailabilityCsvReport(report: AvailabilitySnapshot): st
     'firstVisibleDate',
     'lastVisibleDate',
     'firstAvailableDate',
+    'firstFutureAvailableDate',
     'maxConsecutiveNights',
+    'maxFutureConsecutiveNights',
     'availableRanges',
+    'futureAvailableRanges',
   ];
 
   const rows = report.results.map((result) => [
@@ -119,8 +138,11 @@ export function buildSiteAvailabilityCsvReport(report: AvailabilitySnapshot): st
     result.firstVisibleDate ?? '',
     result.lastVisibleDate ?? '',
     result.firstAvailableDate ?? '',
+    result.firstFutureAvailableDate ?? '',
     String(result.maxConsecutiveNights),
+    String(result.maxFutureConsecutiveNights),
     formatRanges(result),
+    formatFutureRanges(result),
   ]);
 
   return [header, ...rows]

@@ -4,12 +4,11 @@ import { searchAvailability, type SiteAvailability } from './reserveamerica';
 import { isDateBookableNow } from './timer-utils';
 
 const USER_AGENT = 'bear-lake-booker/1.0';
-const RESERVABLE_STATUSES = new Set(['A']);
-
 export type SiteCalendarDay = {
   date: string;
   status: string;
   reservable: boolean;
+  futureReservable: boolean;
 };
 
 export type SiteAvailabilityRange = {
@@ -30,8 +29,11 @@ export type SiteCalendarResult = {
   firstVisibleDate?: string;
   lastVisibleDate?: string;
   firstAvailableDate?: string;
+  firstFutureAvailableDate?: string;
   maxConsecutiveNights: number;
+  maxFutureConsecutiveNights: number;
   availableRanges: SiteAvailabilityRange[];
+  futureAvailableRanges: SiteAvailabilityRange[];
   days: SiteCalendarDay[];
 };
 
@@ -116,18 +118,46 @@ async function fetchWithRetry(url: string, options: RequestInit, maxRetries = 3)
   throw lastError ?? new Error('Fetch failed');
 }
 
-function parseStatusValue(cell: cheerio.Cheerio<any>): string {
-  const text = cell.text().trim().toUpperCase();
-  if (text) {
-    return text;
-  }
-
+function parseStatusValue(cell: cheerio.Cheerio<any>): Pick<SiteCalendarDay, 'status' | 'reservable' | 'futureReservable'> {
+  const rawText = cell.text().trim();
+  const title = (cell.attr('title') || '').trim().toLowerCase();
   const classes = (cell.attr('class') || '')
     .split(/\s+/)
     .map((value) => value.trim())
     .filter(Boolean);
-  const statusClass = classes.find((value) => /^[A-Za-z]$/.test(value));
-  return statusClass ? statusClass.toUpperCase() : '?';
+  const statusClass = classes.find((value) => /^[A-Za-z]$/.test(value))?.toLowerCase();
+
+  if (title.includes('available with earlier arrival date') || rawText === 'a' || statusClass === 'b') {
+    return {
+      status: 'a',
+      reservable: false,
+      futureReservable: true,
+    };
+  }
+
+  const normalizedText = rawText.toUpperCase();
+  if (normalizedText === 'A' || statusClass === 'a') {
+    return {
+      status: 'A',
+      reservable: true,
+      futureReservable: false,
+    };
+  }
+
+  if (normalizedText) {
+    return {
+      status: normalizedText,
+      reservable: false,
+      futureReservable: false,
+    };
+  }
+
+  const fallbackStatus = statusClass ? statusClass.toUpperCase() : '?';
+  return {
+    status: fallbackStatus,
+    reservable: false,
+    futureReservable: false,
+  };
 }
 
 function extractPagingPath(href: string | undefined): string | undefined {
@@ -173,8 +203,7 @@ export function parseSiteCalendarPage(html: string, fallbackUrl: string): Parsed
     const status = parseStatusValue(cell);
     return {
       date,
-      status,
-      reservable: RESERVABLE_STATUSES.has(status),
+      ...status,
     };
   });
 
@@ -207,12 +236,12 @@ export function mergeSiteCalendarPages(pages: ParsedSiteCalendarPage[]): SiteCal
   return Array.from(mergedByDate.values()).sort((left, right) => compareDates(left.date, right.date));
 }
 
-export function buildAvailableRanges(days: SiteCalendarDay[]): SiteAvailabilityRange[] {
+function buildRangesByPredicate(days: SiteCalendarDay[], predicate: (day: SiteCalendarDay) => boolean): SiteAvailabilityRange[] {
   const ranges: SiteAvailabilityRange[] = [];
   let currentRange: SiteAvailabilityRange | null = null;
 
   for (const day of days) {
-    if (!day.reservable) {
+    if (!predicate(day)) {
       if (currentRange) {
         ranges.push(currentRange);
         currentRange = null;
@@ -250,6 +279,14 @@ export function buildAvailableRanges(days: SiteCalendarDay[]): SiteAvailabilityR
   }
 
   return ranges;
+}
+
+export function buildAvailableRanges(days: SiteCalendarDay[]): SiteAvailabilityRange[] {
+  return buildRangesByPredicate(days, (day) => day.reservable);
+}
+
+export function buildFutureAvailableRanges(days: SiteCalendarDay[]): SiteAvailabilityRange[] {
+  return buildRangesByPredicate(days, (day) => day.futureReservable);
 }
 
 function clipDaysToDateRange(days: SiteCalendarDay[], dateFrom: string, dateTo?: string): SiteCalendarDay[] {
@@ -411,10 +448,12 @@ export async function fetchSiteCalendarAvailability(
 
   const mergedDays = clipDaysToDateRange(mergeSiteCalendarPages(parsedPages), dateFrom, dateTo);
   const availableRanges = buildAvailableRanges(mergedDays);
+  const futureAvailableRanges = buildFutureAvailableRanges(mergedDays);
   const firstPage = parsedPages[0];
   const firstVisibleDate = mergedDays[0]?.date;
   const lastVisibleDate = mergedDays.length > 0 ? mergedDays[mergedDays.length - 1]!.date : undefined;
   const firstAvailableDate = availableRanges[0]?.startDate;
+  const firstFutureAvailableDate = futureAvailableRanges[0]?.startDate;
 
   return {
     site: siteRecord.site,
@@ -425,11 +464,14 @@ export async function fetchSiteCalendarAvailability(
     seedDateBookableNow: isDateBookableNow(dateFrom),
     pagesFetched: parsedPages.length,
     maxConsecutiveNights: availableRanges.reduce((max, range) => Math.max(max, range.nights), 0),
+    maxFutureConsecutiveNights: futureAvailableRanges.reduce((max, range) => Math.max(max, range.nights), 0),
     availableRanges,
+    futureAvailableRanges,
     days: mergedDays,
     ...(firstPage?.maxReservationWindowDate ? { maxReservationWindowDate: firstPage.maxReservationWindowDate } : {}),
     ...(firstVisibleDate ? { firstVisibleDate } : {}),
     ...(lastVisibleDate ? { lastVisibleDate } : {}),
     ...(firstAvailableDate ? { firstAvailableDate } : {}),
+    ...(firstFutureAvailableDate ? { firstFutureAvailableDate } : {}),
   };
 }

@@ -35,12 +35,16 @@ function makeSnapshot(overrides: Partial<AvailabilitySnapshot> = {}): Availabili
         firstVisibleDate: '06/01/2026',
         lastVisibleDate: '06/30/2026',
         firstAvailableDate: '06/01/2026',
+        firstFutureAvailableDate: '07/12/2026',
         maxConsecutiveNights: 10,
+        maxFutureConsecutiveNights: 4,
         availableRanges: [{ startDate: '06/01/2026', endDate: '06/10/2026', nights: 10 }],
+        futureAvailableRanges: [{ startDate: '07/12/2026', endDate: '07/15/2026', nights: 4 }],
         days: [
-          { date: '06/01/2026', status: 'A', reservable: true },
-          { date: '06/02/2026', status: 'A', reservable: true },
-          { date: '06/03/2026', status: 'R', reservable: false },
+          { date: '06/01/2026', status: 'A', reservable: true, futureReservable: false },
+          { date: '06/02/2026', status: 'A', reservable: true, futureReservable: false },
+          { date: '06/03/2026', status: 'R', reservable: false, futureReservable: false },
+          { date: '07/12/2026', status: 'a', reservable: false, futureReservable: true },
         ],
       },
       {
@@ -54,11 +58,13 @@ function makeSnapshot(overrides: Partial<AvailabilitySnapshot> = {}): Availabili
         firstVisibleDate: '06/01/2026',
         lastVisibleDate: '06/30/2026',
         firstAvailableDate: '06/05/2026',
+        maxFutureConsecutiveNights: 0,
         maxConsecutiveNights: 5,
         availableRanges: [{ startDate: '06/05/2026', endDate: '06/09/2026', nights: 5 }],
+        futureAvailableRanges: [],
         days: [
-          { date: '06/05/2026', status: 'A', reservable: true },
-          { date: '06/06/2026', status: 'A', reservable: true },
+          { date: '06/05/2026', status: 'A', reservable: true, futureReservable: false },
+          { date: '06/06/2026', status: 'A', reservable: true, futureReservable: false },
         ],
       },
       {
@@ -71,10 +77,13 @@ function makeSnapshot(overrides: Partial<AvailabilitySnapshot> = {}): Availabili
         pagesFetched: 3,
         firstVisibleDate: '06/01/2026',
         lastVisibleDate: '06/30/2026',
+        maxFutureConsecutiveNights: 6,
         maxConsecutiveNights: 0,
         availableRanges: [],
+        futureAvailableRanges: [{ startDate: '06/20/2026', endDate: '06/25/2026', nights: 6 }],
         days: [
-          { date: '06/01/2026', status: 'R', reservable: false },
+          { date: '06/01/2026', status: 'R', reservable: false, futureReservable: false },
+          { date: '06/20/2026', status: 'a', reservable: false, futureReservable: true },
         ],
       },
     ],
@@ -125,6 +134,7 @@ describe('availability snapshots', () => {
     const strengths = buildSnapshotSiteStrengths(makeSnapshot());
     expect(strengths.get('BH09')?.maxConsecutiveNights).toBe(10);
     expect(strengths.get('BH12')?.availableDayCount).toBe(0);
+    expect(strengths.get('BH12')?.maxFutureConsecutiveNights).toBe(6);
 
     const loadedSiteList: LoadedSiteList = {
       sourcePath: '/repo/camp sites/preferred-sites.md',

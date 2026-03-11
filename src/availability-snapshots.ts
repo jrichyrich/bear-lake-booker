@@ -21,9 +21,13 @@ export type AvailabilitySnapshot = {
 export type SnapshotSiteStrength = {
   site: string;
   firstAvailableDate?: string;
+  firstFutureAvailableDate?: string;
   maxConsecutiveNights: number;
+  maxFutureConsecutiveNights: number;
   availableDayCount: number;
+  futureAvailableDayCount: number;
   availabilityDensity: number;
+  futureAvailabilityDensity: number;
 };
 
 function parseSlashDate(value: string): Date {
@@ -175,15 +179,21 @@ export function buildSnapshotSiteStrengths(snapshot: AvailabilitySnapshot): Map<
   return new Map(
     snapshot.results.map((result) => {
       const availableDayCount = result.days.filter((day) => day.reservable).length;
+      const futureAvailableDayCount = result.days.filter((day) => day.futureReservable).length;
       const availabilityDensity = result.days.length > 0 ? availableDayCount / result.days.length : 0;
+      const futureAvailabilityDensity = result.days.length > 0 ? futureAvailableDayCount / result.days.length : 0;
       return [
         normalizeSiteId(result.site),
         {
           site: normalizeSiteId(result.site),
           ...(result.firstAvailableDate ? { firstAvailableDate: result.firstAvailableDate } : {}),
+          ...(result.firstFutureAvailableDate ? { firstFutureAvailableDate: result.firstFutureAvailableDate } : {}),
           maxConsecutiveNights: result.maxConsecutiveNights,
+          maxFutureConsecutiveNights: result.maxFutureConsecutiveNights,
           availableDayCount,
+          futureAvailableDayCount,
           availabilityDensity,
+          futureAvailabilityDensity,
         },
       ];
     }),
@@ -206,10 +216,28 @@ function compareStrength(
     return rightDays - leftDays;
   }
 
+  const leftFutureScore = left?.maxFutureConsecutiveNights ?? -1;
+  const rightFutureScore = right?.maxFutureConsecutiveNights ?? -1;
+  if (rightFutureScore !== leftFutureScore) {
+    return rightFutureScore - leftFutureScore;
+  }
+
+  const leftFutureDays = left?.futureAvailableDayCount ?? -1;
+  const rightFutureDays = right?.futureAvailableDayCount ?? -1;
+  if (rightFutureDays !== leftFutureDays) {
+    return rightFutureDays - leftFutureDays;
+  }
+
   const leftDensity = left?.availabilityDensity ?? -1;
   const rightDensity = right?.availabilityDensity ?? -1;
   if (rightDensity !== leftDensity) {
     return rightDensity > leftDensity ? 1 : -1;
+  }
+
+  const leftFutureDensity = left?.futureAvailabilityDensity ?? -1;
+  const rightFutureDensity = right?.futureAvailabilityDensity ?? -1;
+  if (rightFutureDensity !== leftFutureDensity) {
+    return rightFutureDensity > leftFutureDensity ? 1 : -1;
   }
 
   if (left?.firstAvailableDate && right?.firstAvailableDate) {
@@ -221,6 +249,18 @@ function compareStrength(
   }
 
   if (right?.firstAvailableDate) {
+    return 1;
+  }
+
+  if (left?.firstFutureAvailableDate && right?.firstFutureAvailableDate) {
+    return compareSlashDates(left.firstFutureAvailableDate, right.firstFutureAvailableDate);
+  }
+
+  if (left?.firstFutureAvailableDate) {
+    return -1;
+  }
+
+  if (right?.firstFutureAvailableDate) {
     return 1;
   }
 

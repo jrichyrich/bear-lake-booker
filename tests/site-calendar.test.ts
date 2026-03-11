@@ -1,5 +1,6 @@
 import {
   buildAvailableRanges,
+  buildFutureAvailableRanges,
   mergeSiteCalendarPages,
   parseSiteCalendarPage,
   resolveNextSiteCalendarUrl,
@@ -38,10 +39,30 @@ describe('site calendar parsing', () => {
     expect(parsed.maxReservationWindowDate).toBe('03/10/2027');
     expect(parsed.nextPagePath).toBe('/camping/bear-lake-state-park/r/campsiteDetails.do?arvdate=06/05/2026&contractCode=UT&parkId=343061&siteId=6780');
     expect(parsed.days).toEqual([
-      { date: '05/22/2026', status: 'A', reservable: true },
-      { date: '05/23/2026', status: 'R', reservable: false },
-      { date: '05/24/2026', status: 'W', reservable: false },
-      { date: '05/25/2026', status: 'X', reservable: false },
+      { date: '05/22/2026', status: 'A', reservable: true, futureReservable: false },
+      { date: '05/23/2026', status: 'R', reservable: false, futureReservable: false },
+      { date: '05/24/2026', status: 'W', reservable: false, futureReservable: false },
+      { date: '05/25/2026', status: 'X', reservable: false, futureReservable: false },
+    ]);
+  });
+
+  test('parses lowercase future-available markers separately from bookable A days', () => {
+    const parsed = parseSiteCalendarPage(`
+      <div id="sitenamearea"><div class="siteTile">Site, Loop: BH34, BIRCH</div></div>
+      <input type="hidden" value="6801" id="siteId">
+      <div id="calendar" class="items"><div class="br">
+        <div class="td status a sat slct" title="Available" data-auto-id="mday20260711"><a>A</a></div>
+        <div class="td status b sun" title="Available with earlier arrival date" data-auto-id="mday20260712">a</div>
+        <div class="td status b" title="Available with earlier arrival date" data-auto-id="mday20260713">a</div>
+        <div class="td status x" title="Not available" data-auto-id="mday20260714">X</div>
+      </div></div>
+    `, 'https://example.com/details');
+
+    expect(parsed.days).toEqual([
+      { date: '07/11/2026', status: 'A', reservable: true, futureReservable: false },
+      { date: '07/12/2026', status: 'a', reservable: false, futureReservable: true },
+      { date: '07/13/2026', status: 'a', reservable: false, futureReservable: true },
+      { date: '07/14/2026', status: 'X', reservable: false, futureReservable: false },
     ]);
   });
 
@@ -64,26 +85,41 @@ describe('site calendar parsing', () => {
     `, 'https://example.com/b');
 
     expect(mergeSiteCalendarPages([pageOne, pageTwo])).toEqual([
-      { date: '05/22/2026', status: 'A', reservable: true },
-      { date: '05/23/2026', status: 'A', reservable: true },
-      { date: '05/24/2026', status: 'R', reservable: false },
+      { date: '05/22/2026', status: 'A', reservable: true, futureReservable: false },
+      { date: '05/23/2026', status: 'A', reservable: true, futureReservable: false },
+      { date: '05/24/2026', status: 'R', reservable: false, futureReservable: false },
     ]);
   });
 
   test('builds contiguous available ranges and excludes walk-up days', () => {
     const ranges = buildAvailableRanges([
-      { date: '05/22/2026', status: 'A', reservable: true },
-      { date: '05/23/2026', status: 'A', reservable: true },
-      { date: '05/24/2026', status: 'W', reservable: false },
-      { date: '05/25/2026', status: 'A', reservable: true },
-      { date: '05/26/2026', status: 'A', reservable: true },
-      { date: '05/27/2026', status: 'A', reservable: true },
-      { date: '05/28/2026', status: 'R', reservable: false },
+      { date: '05/22/2026', status: 'A', reservable: true, futureReservable: false },
+      { date: '05/23/2026', status: 'A', reservable: true, futureReservable: false },
+      { date: '05/24/2026', status: 'W', reservable: false, futureReservable: false },
+      { date: '05/25/2026', status: 'A', reservable: true, futureReservable: false },
+      { date: '05/26/2026', status: 'A', reservable: true, futureReservable: false },
+      { date: '05/27/2026', status: 'A', reservable: true, futureReservable: false },
+      { date: '05/28/2026', status: 'R', reservable: false, futureReservable: false },
     ]);
 
     expect(ranges).toEqual([
       { startDate: '05/22/2026', endDate: '05/23/2026', nights: 2 },
       { startDate: '05/25/2026', endDate: '05/27/2026', nights: 3 },
+    ]);
+  });
+
+  test('builds future-available ranges from lowercase a markers', () => {
+    const ranges = buildFutureAvailableRanges([
+      { date: '07/11/2026', status: 'A', reservable: true, futureReservable: false },
+      { date: '07/12/2026', status: 'a', reservable: false, futureReservable: true },
+      { date: '07/13/2026', status: 'a', reservable: false, futureReservable: true },
+      { date: '07/14/2026', status: 'X', reservable: false, futureReservable: false },
+      { date: '07/15/2026', status: 'a', reservable: false, futureReservable: true },
+    ]);
+
+    expect(ranges).toEqual([
+      { startDate: '07/12/2026', endDate: '07/13/2026', nights: 2 },
+      { startDate: '07/15/2026', endDate: '07/15/2026', nights: 1 },
     ]);
   });
 

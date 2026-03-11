@@ -29,11 +29,19 @@ function makeReport(): AvailabilitySnapshot {
         firstVisibleDate: '07/01/2026',
         lastVisibleDate: '07/31/2026',
         firstAvailableDate: '07/04/2026',
+        firstFutureAvailableDate: '07/12/2026',
         maxConsecutiveNights: 5,
+        maxFutureConsecutiveNights: 3,
         availableRanges: [
           { startDate: '07/04/2026', endDate: '07/08/2026', nights: 5 },
         ],
-        days: [],
+        futureAvailableRanges: [
+          { startDate: '07/12/2026', endDate: '07/14/2026', nights: 3 },
+        ],
+        days: [
+          { date: '07/04/2026', status: 'A', reservable: true, futureReservable: false },
+          { date: '07/12/2026', status: 'a', reservable: false, futureReservable: true },
+        ],
       },
     ],
   };
@@ -47,6 +55,7 @@ describe('site availability utils', () => {
     expect(markdown).toContain('## BH09');
     expect(markdown).toContain('- Max consecutive nights: 5');
     expect(markdown).toContain('- Available ranges: 07/04/2026 -> 07/08/2026 (5 nights)');
+    expect(markdown).toContain('- Future-available ranges: 07/12/2026 -> 07/14/2026 (3 nights)');
     expect(markdown).toContain('- Missing sites: BH99');
   });
 
@@ -56,6 +65,7 @@ describe('site availability utils', () => {
     expect(csv).toContain('"site","loop","siteId"');
     expect(csv).toContain('"BH09","BIRCH","123"');
     expect(csv).toContain('"07/04/2026 -> 07/08/2026 (5 nights)"');
+    expect(csv).toContain('"07/12/2026 -> 07/14/2026 (3 nights)"');
   });
 
   test('maps values with bounded concurrency and preserves order', async () => {
