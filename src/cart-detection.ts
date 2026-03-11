@@ -1,6 +1,4 @@
-function normalizeSiteId(siteId: string): string {
-  return siteId.trim().toUpperCase();
-}
+import { extractSiteIds, normalizeSiteId } from './site-id';
 
 export type CartConfirmationSource =
   | 'cart-url'
@@ -20,9 +18,7 @@ export type CartConfirmationInput = {
 };
 
 export function extractCartSiteIds(bodyText: string): string[] {
-  return Array.from(new Set(
-    (bodyText.match(/BH\d{2}/g) ?? []).map((siteId) => normalizeSiteId(siteId)),
-  ));
+  return extractSiteIds(bodyText);
 }
 
 export function isCartUrl(url: string): boolean {

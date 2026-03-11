@@ -11,7 +11,6 @@ import {
   loadAvailabilitySnapshot,
   loadLatestAvailabilitySnapshot,
   resolveLatestAvailabilitySnapshotPath,
-  rankRequestedSitesForCapture,
   writeAvailabilitySnapshot,
   type AvailabilitySnapshot,
 } from './availability-snapshots';
@@ -21,7 +20,12 @@ import { ensureActiveSession } from './session-manager';
 import { getAccountDisplayName, normalizeCliAccounts, sessionExists, getReadableSessionPath } from './session-utils';
 import { normalizeNotificationProfile } from './notify';
 import { loadSiteList } from './site-lists';
-import { buildReleaseRaceArgs, resolveProjectionAt, resolveReleaseSchedule, selectReleaseSites } from './release-utils';
+import {
+  buildReleaseRaceArgs,
+  resolveProjectionAt,
+  resolveReleaseSchedule,
+  resolveReleaseScoutSites,
+} from './release-utils';
 import { fetchSiteCalendarAvailability, resolveRequestedSiteRecords } from './site-calendar';
 import { mapWithConcurrency } from './site-availability-utils';
 import {
@@ -201,21 +205,14 @@ async function resolveTargetSites(
     length: stayLength,
     loop,
   });
-  const liveSites = loadedSiteList
-    ? search.exactDateMatches
-        .map((site) => site.site)
-        .filter((site) => loadedSiteList.siteIds.includes(site.toUpperCase()))
-    : search.exactDateMatches.map((site) => site.site);
-  const selectedSites = selectReleaseSites(
-    rankRequestedSitesForCapture(
-      liveSites,
-      availabilitySnapshot,
-      loadedSiteList,
-    ),
+  const selectedSites = resolveReleaseScoutSites({
+    search,
+    availabilitySnapshot,
+    loadedSiteList,
     desiredCount,
-  );
+  });
   if (selectedSites.length === 0) {
-    throw new Error(`No exact-date ${loop} sites were available for ${targetDate} during the scout.`);
+    throw new Error(`No ${loop} sites were available to target for ${targetDate} during the scout.`);
   }
   return selectedSites;
 }

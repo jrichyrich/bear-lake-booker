@@ -95,4 +95,8 @@ describe('cart detection helpers', () => {
   test('extracts site IDs even when the cart label is glued to the site code', () => {
     expect(extractCartSiteIds('STANDARD-FULL HOOKUPBH03, BIRCH')).toEqual(['BH03']);
   });
+
+  test('extracts mixed site prefixes from cart text', () => {
+    expect(extractCartSiteIds('BC85\nBH03\nBC86\nBC85')).toEqual(['BC85', 'BH03', 'BC86']);
+  });
 });

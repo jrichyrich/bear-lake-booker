@@ -15,7 +15,7 @@ describe('site lists', () => {
 
 ## Top choices
 - BH03
-- bh09
+- bc85
 
 ## Backups
 - BH11
@@ -26,7 +26,7 @@ describe('site lists', () => {
 `);
 
     expect(sections).toEqual({
-      topChoices: ['BH03', 'BH09'],
+      topChoices: ['BH03', 'BC85'],
       backups: ['BH11', 'BH12'],
       exclude: ['BH31-HOST'],
     });
@@ -54,7 +54,7 @@ describe('site lists', () => {
 
 ## Top choices
 - BH03
-- BH09
+- BC85
 
 ## Backups
 - BH11
@@ -67,8 +67,8 @@ describe('site lists', () => {
 
     expect(loadSiteList('preferred-sites', tempDir)).toEqual({
       sourcePath: siteListPath,
-      siteIds: ['BH03', 'BH09', 'BH11', 'BH12'],
-      topChoices: ['BH03', 'BH09'],
+      siteIds: ['BH03', 'BC85', 'BH11', 'BH12'],
+      topChoices: ['BH03', 'BC85'],
       backups: ['BH11', 'BH12'],
       exclude: ['BH31-HOST'],
     });

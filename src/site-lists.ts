@@ -1,8 +1,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { findFirstSiteId, normalizeSiteId } from './site-id';
 
 const SITE_LISTS_DIR = 'camp sites';
-const SITE_TOKEN_PATTERN = /\bBH\d{2}(?:-HOST)?\b/i;
 
 type RankedSiteSections = {
   topChoices: string[];
@@ -23,7 +23,7 @@ function dedupeSiteIds(siteIds: string[]): string[] {
   const seen = new Set<string>();
 
   for (const siteId of siteIds) {
-    const normalized = siteId.trim().toUpperCase();
+    const normalized = normalizeSiteId(siteId);
     if (!normalized || seen.has(normalized)) {
       continue;
     }
@@ -89,11 +89,11 @@ export function parseRankedSiteList(content: string): RankedSiteSections {
       continue;
     }
 
-    const siteMatch = SITE_TOKEN_PATTERN.exec(line);
-    if (!siteMatch) {
-      throw new Error(`Invalid site entry "${line}". Expected a bullet like "- BH03".`);
+    const siteId = findFirstSiteId(line);
+    if (!siteId) {
+      throw new Error(`Invalid site entry "${line}". Expected a bullet like "- BC85".`);
     }
-    sections[activeSection].push(siteMatch[0].toUpperCase());
+    sections[activeSection].push(siteId);
   }
 
   return {

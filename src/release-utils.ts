@@ -1,7 +1,19 @@
+import { rankRequestedSitesForCapture, type AvailabilitySnapshot } from './availability-snapshots';
+import type { SearchResult } from './reserveamerica';
+import type { LoadedSiteList } from './site-lists';
+
 export type ReleaseSchedule = {
   launchAt: Date;
   warmupAt: Date;
   scoutAt: Date;
+};
+
+type ResolveReleaseScoutSitesInput = {
+  explicitSites?: string[];
+  search: SearchResult;
+  availabilitySnapshot: AvailabilitySnapshot | null;
+  loadedSiteList?: LoadedSiteList | null;
+  desiredCount: number;
 };
 
 export function resolveProjectionAt(launchAt: Date, projectionLeadMinutes: number, warmupAt: Date): Date {
@@ -78,6 +90,29 @@ export function selectReleaseSites(
   return Array.from(
     new Set(availableSites.map((site) => site.trim().toUpperCase()).filter(Boolean)),
   ).slice(0, desiredCount);
+}
+
+export function resolveReleaseScoutSites(input: ResolveReleaseScoutSitesInput): string[] {
+  const explicitSites = input.explicitSites ?? [];
+  if (explicitSites.length > 0) {
+    return selectReleaseSites([], input.desiredCount, explicitSites);
+  }
+
+  const returnedSites = input.search.allSites.map((site) => site.site);
+  const candidateSites = input.loadedSiteList
+    ? returnedSites.filter((siteId) => input.loadedSiteList?.siteIds.includes(siteId.trim().toUpperCase()))
+    : input.search.availableSites.length > 0
+      ? input.search.availableSites.map((site) => site.site)
+      : returnedSites;
+
+  return selectReleaseSites(
+    rankRequestedSitesForCapture(
+      candidateSites,
+      input.availabilitySnapshot,
+      input.loadedSiteList,
+    ),
+    input.desiredCount,
+  );
 }
 
 type StripOptionConfig = {
