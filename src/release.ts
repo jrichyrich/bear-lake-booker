@@ -12,6 +12,7 @@ import { sleep } from './automation';
 import { ensureActiveSession } from './session-manager';
 import { getAccountDisplayName, normalizeCliAccounts, sessionExists, getReadableSessionPath } from './session-utils';
 import { normalizeNotificationProfile } from './notify';
+import { loadSiteList } from './site-lists';
 import { buildReleaseRaceArgs, resolveReleaseSchedule, selectReleaseSites } from './release-utils';
 
 const args = process.argv.slice(2);
@@ -26,6 +27,7 @@ const { values } = parseArgs({
     concurrency: { type: 'string', short: 'c', default: '10' },
     accounts: { type: 'string' },
     sites: { type: 'string' },
+    siteList: { type: 'string' },
     headed: { type: 'boolean', default: false },
     checkoutAuthMode: { type: 'string' },
     notificationProfile: { type: 'string', default: 'test' },
@@ -53,6 +55,7 @@ Common options:
   -c, --concurrency <count>    Agent count / target site count
   --accounts <csv>             Account emails
   --sites <csv>                Explicit site override (skip scout)
+  --siteList <name-or-path>    Ranked site list from camp sites or a path
   --notificationProfile <name> test or production [default: test]
   --scoutLeadMinutes <mins>    Minutes before launch to freeze scout [default: 2]
   --warmupLeadSeconds <secs>   Seconds before launch to start race warmup [default: 45]
@@ -72,6 +75,7 @@ const warmupLeadSeconds = parseInt(values.warmupLeadSeconds as string, 10);
 const explicitSites = typeof values.sites === 'string'
   ? values.sites.split(',').map((site) => site.trim().toUpperCase()).filter(Boolean)
   : [];
+const siteListSpec = typeof values.siteList === 'string' ? values.siteList.trim() : '';
 const requestedAccounts = typeof values.accounts === 'string'
   ? normalizeCliAccounts(values.accounts.split(','), '[Release] ')
   : [undefined];
@@ -169,6 +173,7 @@ async function resolveTargetSites(): Promise<string[]> {
 
 async function main(): Promise<void> {
   const schedule = resolveReleaseSchedule(new Date(), launchTime, scoutLeadMinutes, warmupLeadSeconds);
+  const loadedSiteList = explicitSites.length === 0 && siteListSpec ? loadSiteList(siteListSpec) : null;
 
   console.log('--- Bear Lake Booker: Release / Rehearsal Wrapper ---');
   console.log(`[Release] Target date: ${targetDate}`);
@@ -176,16 +181,19 @@ async function main(): Promise<void> {
   console.log(`[Release] Scout time: ${formatClock(schedule.scoutAt)}`);
   console.log(`[Release] Warmup start: ${formatClock(schedule.warmupAt)}`);
   console.log(`[Release] Notification profile: ${notificationProfile}`);
+  if (loadedSiteList) {
+    console.log(`[Release] Site list source: ${loadedSiteList.sourcePath}`);
+  }
   console.log(`[Release] Accounts: ${requestedAccounts.map((account) => getAccountDisplayName(account)).join(', ')}`);
 
   for (const account of requestedAccounts) {
     await ensureSessionAndEmptyCart(account);
   }
 
-  if (explicitSites.length === 0) {
+  if (explicitSites.length === 0 && !loadedSiteList) {
     await waitUntil(schedule.scoutAt, 'site scout');
   }
-  const resolvedSites = await resolveTargetSites();
+  const resolvedSites = loadedSiteList?.siteIds ?? await resolveTargetSites();
 
   console.log('[Release] Resolved launch plan:');
   console.log(`  Date: ${targetDate}`);
@@ -193,11 +201,20 @@ async function main(): Promise<void> {
   console.log(`  Launch time: ${launchTime}`);
   console.log(`  Warmup start: ${formatClock(schedule.warmupAt)}`);
   console.log(`  Notification profile: ${notificationProfile}`);
+  if (loadedSiteList) {
+    console.log(`  Site list source: ${loadedSiteList.sourcePath}`);
+  }
   console.log(`  Sites: ${resolvedSites.join(', ')}`);
   console.log(`  Accounts: ${requestedAccounts.map((account) => getAccountDisplayName(account)).join(', ')}`);
 
   await waitUntil(schedule.warmupAt, 'race warmup');
-  const raceArgs = buildReleaseRaceArgs(args, launchTime, resolvedSites, notificationProfile);
+  const raceArgs = buildReleaseRaceArgs(
+    args,
+    launchTime,
+    resolvedSites,
+    notificationProfile,
+    loadedSiteList?.sourcePath,
+  );
   const result = spawnSync('npx', ['tsx', 'src/race.ts', ...raceArgs], {
     stdio: 'inherit',
     env: process.env,

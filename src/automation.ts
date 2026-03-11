@@ -282,16 +282,28 @@ export async function primeSearchForm(
     }
     try {
       await page.waitForSelector('#unifSearchForm', { timeout: 15000 });
+      await page.waitForSelector('#loop', { timeout: 10000 });
+      await page.waitForSelector('#campingDate', { timeout: 10000 });
+      await page.waitForSelector('#lengthOfStay', { timeout: 10000 });
       break;
     } catch {
-      if (attempt < MAX_RETRIES) await sleep(RETRY_BACKOFF_MS);
-      else throw new Error('Search form not found.');
+      if (attempt < MAX_RETRIES) {
+        console.warn(`${agentLabel}Search form did not fully initialize on attempt ${attempt}. Retrying...`);
+        await sleep(RETRY_BACKOFF_MS);
+      } else {
+        throw new Error('Search form did not fully initialize.');
+      }
     }
   }
 
   const normalizedLoop = loop.trim().toUpperCase();
-  const loopValue = await page.locator('#loop').evaluate((select, desiredLoop) => {
-    const option = Array.from((select as HTMLSelectElement).options).find(
+  const loopValue = await page.evaluate((desiredLoop) => {
+    const select = document.querySelector<HTMLSelectElement>('#loop');
+    if (!select) {
+      return '';
+    }
+
+    const option = Array.from(select.options).find(
       (candidate) => candidate.textContent?.trim().toUpperCase() === desiredLoop,
     );
     return option?.value ?? '';

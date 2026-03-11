@@ -68,7 +68,9 @@ If present, `race.ts` sends one end-of-run inventory summary to each configured 
 - Hybrid dry run: `npm run race -- -d 08/15/2026 -l 3 -o BIRCH -m 5 -c 2 --dryRun --headed`
 - Hybrid live hold attempt: `npm run race -- -d 08/15/2026 -l 3 -o BIRCH -m 5 -c 4 --book`
 - Scheduled race with targeted sites: `npm run race -- -d 08/15/2026 -l 3 -o BIRCH -c 10 -t 07:59:59 --sites BH09,BH11 --book --notificationProfile production`
+- Scheduled race from a ranked site list: `npm run race -- -d 08/15/2026 -l 3 -o BIRCH -c 10 -t 07:59:59 --siteList preferred-sites --book --notificationProfile production`
 - Release/rehearsal wrapper: `npm run release -- --launchTime 07:59:59 -d 08/15/2026 -l 3 -o BIRCH -c 6 --book --accounts lisa@gmail.com,jason@gmail.com --headed --checkoutAuthMode manual --notificationProfile test`
+- Release wrapper from a ranked site list: `npm run release -- --launchTime 07:59:59 -d 08/15/2026 -l 3 -o BIRCH -c 6 --book --accounts lisa@gmail.com,jason@gmail.com --siteList preferred-sites --headed --checkoutAuthMode manual --notificationProfile test`
 - Multi-account run: `npm run race -- -d 08/15/2026 -l 3 -o BIRCH -c 4 --book --accounts lisa@gmail.com,jason@gmail.com`
 - Multi-hold mode: `npm run race -- -d 08/15/2026 -l 3 -o BIRCH -c 4 --book --bookingMode multi --maxHolds 2 --accounts lisa@gmail.com,jason@gmail.com`
 
@@ -91,6 +93,7 @@ If present, `race.ts` sends one end-of-run inventory summary to each configured 
 - `--bookingMode single|multi`: choose single-winner or multi-hold coordination.
 - `--maxHolds <n>`: cap holds in multi mode.
 - `--sites <csv>`: restrict capture to explicit site IDs.
+- `--siteList <name-or-path>`: load ranked allowed sites from `camp sites/<name>.md` or a path.
 - `--headed`: run visible browsers for debugging or manual intervention.
 - `--checkoutAuthMode auto|manual`: choose how checkout re-auth is handled.
 - `--notificationProfile test|production`: choose which iMessage recipient profile gets the final inventory summary.
@@ -110,6 +113,17 @@ The automation boundary is still intentional: Bear Lake Booker can reach the sho
 4. Complete checkout manually before the hold expires.
 
 For `npm run release`, the wrapper also requires empty carts before launch, scouts or freezes the target site list, and then starts `race.ts` with the resolved `--time` and `--sites`.
+
+## Camp Site Lists
+Ranked site lists live under [`camp sites`](/Users/jasricha/Documents/Github_Personal/bear-lake-booker/camp%20sites).
+
+The operational shortlist is [`preferred-sites.md`](/Users/jasricha/Documents/Github_Personal/bear-lake-booker/camp%20sites/preferred-sites.md), which uses:
+
+- `## Top choices`
+- `## Backups`
+- `## Exclude`
+
+The runtime derives the final allowlist as `Top choices + Backups - Exclude`. If both `--sites` and `--siteList` are provided, `--sites` still wins.
 
 ## Roadmap
 The main unfinished work is tracked in:

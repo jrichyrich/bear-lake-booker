@@ -138,7 +138,8 @@ function formatContent(
 }
 
 export function buildFinalInventorySummary(summary: RunSummary): NotificationContent | null {
-  if (summary.holds.length === 0) {
+  const realHolds = summary.holds.filter((hold) => hold.stage === 'order-details');
+  if (summary.dryRun || realHolds.length === 0) {
     return null;
   }
 
@@ -149,11 +150,12 @@ export function buildFinalInventorySummary(summary: RunSummary): NotificationCon
   ];
 
   for (const account of summary.accounts) {
-    if (account.holdDetails.length === 0) {
+    const realAccountHolds = account.holdDetails.filter((hold) => hold.stage === 'order-details');
+    if (realAccountHolds.length === 0) {
       continue;
     }
     lines.push(`${account.account}:`);
-    for (const hold of account.holdDetails) {
+    for (const hold of realAccountHolds) {
       lines.push(`- ${hold.site}: ${hold.detailsUrl ?? 'link unavailable'}`);
     }
   }

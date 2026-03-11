@@ -2,12 +2,18 @@
 
 This directory is for campsite preference analysis and a constrained target list.
 
-Planned contents:
-- campground map image reference
-- ranked preferred site list
-- narrowed allowlists for release runs
-- notes on tradeoffs by site cluster
+Contents:
+- `SCR-20260310-nwgo.png`: campground map image reference
+- `site-list.md`: raw visible site inventory from the map
+- `preferred-sites.md`: curated ranked allowlist for automated runs
 
-Current status:
-- directory created
-- map image still needs to be saved here from a local file path or copied in manually
+Use `preferred-sites.md` with:
+- `npm run race -- --siteList preferred-sites ...`
+- `npm run release -- --siteList preferred-sites ...`
+
+File format:
+- `## Top choices`
+- `## Backups`
+- `## Exclude`
+
+The runtime derives the final allowlist as `Top choices + Backups - Exclude`.

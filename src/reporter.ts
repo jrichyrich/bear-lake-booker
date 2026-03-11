@@ -109,6 +109,7 @@ export interface RunSummary {
   agentCount: number;
   bookingMode: 'single' | 'multi';
   maxHolds: number;
+  siteListSource: string | undefined;
   requestedSites: string[];
   availableSites: string[];
   holds: HoldRecord[];

@@ -34,6 +34,7 @@ function buildSummary(overrides: Partial<RunSummary> = {}): RunSummary {
     agentCount: 6,
     bookingMode: 'multi',
     maxHolds: 3,
+    siteListSource: undefined,
     requestedSites: ['BH03', 'BH09'],
     availableSites: ['BH03', 'BH09'],
     holds: [{
@@ -182,6 +183,40 @@ describe('notify helpers', () => {
         verifiedCartSites: [],
         verifiedCartCount: 0,
         stopReason: null,
+        skippedSites: [],
+      }],
+    }))).toBeNull();
+  });
+
+  test('does not build a final summary for dry-run site-details outcomes', () => {
+    expect(buildFinalInventorySummary(buildSummary({
+      dryRun: true,
+      holds: [{
+        account: 'lisarichards1984@gmail.com',
+        agentId: 1,
+        site: 'BH24',
+        stage: 'site-details',
+        timestamp: '2026-03-10T17:14:45.637Z',
+        detailsUrl: 'https://example.com/BH24',
+      }],
+      accounts: [{
+        account: 'lisarichards1984@gmail.com',
+        maxHolds: 1,
+        holds: ['BH24'],
+        holdDetails: [{
+          account: 'lisarichards1984@gmail.com',
+          agentId: 1,
+          site: 'BH24',
+          stage: 'site-details',
+          timestamp: '2026-03-10T17:14:45.637Z',
+          detailsUrl: 'https://example.com/BH24',
+        }],
+        assignedSites: ['BH24'],
+        attemptedSites: ['BH24'],
+        failedSites: [],
+        verifiedCartSites: [],
+        verifiedCartCount: 0,
+        stopReason: 'max-holds-reached',
         skippedSites: [],
       }],
     }))).toBeNull();

@@ -77,6 +77,8 @@ const WRAPPER_ONLY_OPTIONS: StripOptionConfig[] = [
   { name: '--scoutLeadMinutes', takesValue: true },
   { name: '--warmupLeadSeconds', takesValue: true },
   { name: '--notificationProfile', takesValue: true },
+  { name: '--siteList', takesValue: true },
+  { name: '--siteListSource', takesValue: true },
   { name: '--time', takesValue: true },
   { name: '-t', takesValue: true },
   { name: '--sites', takesValue: true },
@@ -87,6 +89,7 @@ export function buildReleaseRaceArgs(
   launchTime: string,
   sites: string[],
   notificationProfile: 'test' | 'production',
+  siteListSource?: string,
 ): string[] {
   const stripped: string[] = [];
 
@@ -109,6 +112,7 @@ export function buildReleaseRaceArgs(
     launchTime,
     '--notificationProfile',
     notificationProfile,
+    ...(siteListSource ? ['--siteListSource', siteListSource] : []),
     ...(sites.length > 0 ? ['--sites', sites.join(',')] : []),
   ];
 }

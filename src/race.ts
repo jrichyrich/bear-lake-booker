@@ -27,6 +27,7 @@ import {
   getInitialTargetSites,
   prioritizeAccountAwareTargetSiteIds,
 } from './site-targeting';
+import { loadSiteList } from './site-lists';
 import {
   inspectCartState,
   sleep,
@@ -55,6 +56,8 @@ const { values } = parseArgs({
     screenshotOnWin: { type: 'boolean', default: false },
     sequential: { type: 'boolean', default: false },
     sites: { type: 'string' },
+    siteList: { type: 'string' },
+    siteListSource: { type: 'string' },
     accounts: { type: 'string' },
     notificationProfile: { type: 'string', default: 'test' },
     checkoutAuthMode: { type: 'string' },
@@ -88,6 +91,7 @@ Options:
   --screenshotOnWin             Capture screenshot upon successful booking
   --sequential                  Book sites one at a time in a single browser
   --sites <csv>                 Target specific sites (e.g., BH03,BH07,BH09)
+  --siteList <name-or-path>     Ranked site list from camp sites or a path
   --accounts <csv>              Capture into multiple authenticated account emails
   --notificationProfile <name>  test or production [default: test]
   --checkoutAuthMode <mode>     auto or manual [default: manual when headed, else auto]
@@ -113,7 +117,14 @@ const NOTIFICATION_PROFILE = normalizeNotificationProfile(values.notificationPro
 const PROFILE_DIR = values.profileDir!;
 const RESET_PROFILES = values.resetProfiles!;
 const SCREENSHOT_ON_WIN = values.screenshotOnWin!;
-const SITE_ALLOWLIST: string[] = values.sites ? values.sites.split(',').map((s) => s.trim().toUpperCase()) : [];
+const EXPLICIT_SITE_ALLOWLIST: string[] = values.sites ? values.sites.split(',').map((s) => s.trim().toUpperCase()) : [];
+const SITE_LIST_SPEC = typeof values.siteList === 'string' ? values.siteList.trim() : '';
+const RESOLVED_SITE_LIST_SOURCE = typeof values.siteListSource === 'string' ? values.siteListSource : undefined;
+const loadedSiteList = EXPLICIT_SITE_ALLOWLIST.length === 0 && SITE_LIST_SPEC ? loadSiteList(SITE_LIST_SPEC) : null;
+const SITE_ALLOWLIST: string[] = EXPLICIT_SITE_ALLOWLIST.length > 0
+  ? EXPLICIT_SITE_ALLOWLIST
+  : loadedSiteList?.siteIds ?? [];
+const SITE_LIST_SOURCE = loadedSiteList?.sourcePath ?? RESOLVED_SITE_LIST_SOURCE;
 const LAUNCH_MODE = parseLaunchMode(values.launchMode);
 const CHECKOUT_AUTH_MODE: 'auto' | 'manual' = values.checkoutAuthMode === 'auto'
   ? 'auto'
@@ -462,21 +473,47 @@ async function runAgent(spec: AgentSpec, context: BrowserContext) {
   const { agentId, account, preferredSite, localAgentIndex } = spec;
   activeContexts.set(agentId, { accountKey: account.storageKey, context });
   let page = await context.newPage();
+  let fallbackSearchContext: BrowserContext | null = null;
   const agentSummary = createAgentRunSummary(agentId, account, preferredSite);
   try {
     const label = `[${account.displayName}][Agent ${localAgentIndex}] `;
-    const launchResult = await executeLaunchStrategy({
-      context,
-      page,
-      loop: LOOP,
-      targetDate: TARGET_DATE,
-      stayLength: STAY_LENGTH,
-      targetTime: TARGET_TIME ?? undefined,
-      launchMode: LAUNCH_MODE,
-      agentLabel: label,
-    });
-    page = launchResult.page;
-    agentSummary.launch = launchResult.telemetry;
+    try {
+      const launchResult = await executeLaunchStrategy({
+        context,
+        page,
+        loop: LOOP,
+        targetDate: TARGET_DATE,
+        stayLength: STAY_LENGTH,
+        targetTime: TARGET_TIME ?? undefined,
+        launchMode: LAUNCH_MODE,
+        agentLabel: label,
+      });
+      page = launchResult.page;
+      agentSummary.launch = launchResult.telemetry;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const shouldRetryWithGuestSearch = message.includes('Loop "') || message.includes('Search form did not fully initialize');
+      const browser = context.browser();
+      if (!shouldRetryWithGuestSearch || !browser) {
+        throw error;
+      }
+
+      console.warn(`${label}Authenticated search page failed (${message}). Retrying candidate discovery in a guest context...`);
+      fallbackSearchContext = await browser.newContext({ timezoneId: 'America/Denver' });
+      const fallbackPage = await fallbackSearchContext.newPage();
+      const launchResult = await executeLaunchStrategy({
+        context: fallbackSearchContext,
+        page: fallbackPage,
+        loop: LOOP,
+        targetDate: TARGET_DATE,
+        stayLength: STAY_LENGTH,
+        targetTime: TARGET_TIME ?? undefined,
+        launchMode: LAUNCH_MODE,
+        agentLabel: `${label}[Guest Search] `,
+      });
+      page = launchResult.page;
+      agentSummary.launch = launchResult.telemetry;
+    }
 
     const candidates = (await resolveTargetSites(page, TARGET_DATE, STAY_LENGTH, LOOP)).filter(
       (candidate) => SITE_ALLOWLIST.length === 0 || SITE_ALLOWLIST.includes(candidate.site.toUpperCase()),
@@ -647,6 +684,9 @@ async function runAgent(spec: AgentSpec, context: BrowserContext) {
     console.error(`[Agent ${agentId}] Error: ${error}`);
     finishAgentRun(agentSummary, 'error', error instanceof Error ? error.message : String(error));
   } finally {
+    if (fallbackSearchContext) {
+      await fallbackSearchContext.close().catch(() => {});
+    }
     activeContexts.delete(agentId);
     await context.close().catch(() => {});
   }
@@ -861,6 +901,7 @@ startRace()
       agentCount: allocatedAgentCountForRun,
       bookingMode: BOOKING_MODE,
       maxHolds: MAX_HOLDS,
+      siteListSource: SITE_LIST_SOURCE,
       requestedSites: requestedSitesForRun,
       availableSites: availabilityTelemetry.matchedSites,
       holds,
@@ -927,6 +968,7 @@ startRace()
       agentCount: allocatedAgentCountForRun,
       bookingMode: BOOKING_MODE,
       maxHolds: MAX_HOLDS,
+      siteListSource: SITE_LIST_SOURCE,
       requestedSites: requestedSitesForRun,
       availableSites: availabilityTelemetry.matchedSites,
       holds,
