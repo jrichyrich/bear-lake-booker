@@ -16,6 +16,7 @@ function makeSnapshot(overrides: Partial<AvailabilitySnapshot> = {}): Availabili
   return {
     generatedAt: '2026-03-11T03:00:00.000Z',
     searchedAt: '2026-03-11T03:00:00.000Z',
+    snapshotKind: 'site-calendar',
     loop: 'BIRCH',
     stayLength: '1',
     seedDate: '06/01/2026',
@@ -109,7 +110,7 @@ describe('availability snapshots', () => {
     expect(loaded.results[0]?.availableRanges[0]?.nights).toBe(10);
   });
 
-  test('loads the latest snapshot matching loop/date/site list', () => {
+  test('loads the latest snapshot matching loop/date/site list/stay length', () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bear-lake-snapshots-'));
     writeAvailabilitySnapshot(makeSnapshot({
       generatedAt: '2026-03-10T03:00:00.000Z',
@@ -122,12 +123,44 @@ describe('availability snapshots', () => {
 
     const latest = loadLatestAvailabilitySnapshot({
       loop: 'BIRCH',
+      stayLength: '1',
       targetDate: '06/15/2026',
       siteListSource: '/repo/camp sites/preferred-sites.md',
       snapshotsDir: tempDir,
     });
 
     expect(latest?.generatedAt).toBe('2026-03-11T03:00:00.000Z');
+  });
+
+  test('ignores snapshots with the wrong stay length or snapshot kind', () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bear-lake-snapshots-'));
+    writeAvailabilitySnapshot(makeSnapshot({
+      generatedAt: '2026-03-10T03:00:00.000Z',
+      searchedAt: '2026-03-10T03:00:00.000Z',
+      stayLength: '14',
+    }), path.join(tempDir, 'wrong-length.json'));
+    writeAvailabilitySnapshot(makeSnapshot({
+      generatedAt: '2026-03-11T03:00:00.000Z',
+      searchedAt: '2026-03-11T03:00:00.000Z',
+      snapshotKind: 'projection',
+    }), path.join(tempDir, 'wrong-kind.json'));
+    writeAvailabilitySnapshot(makeSnapshot({
+      generatedAt: '2026-03-12T03:00:00.000Z',
+      searchedAt: '2026-03-12T03:00:00.000Z',
+      stayLength: '1',
+      snapshotKind: 'site-calendar',
+    }), path.join(tempDir, 'correct.json'));
+
+    const latest = loadLatestAvailabilitySnapshot({
+      loop: 'BIRCH',
+      stayLength: '1',
+      targetDate: '06/15/2026',
+      siteListSource: '/repo/camp sites/preferred-sites.md',
+      snapshotKind: 'site-calendar',
+      snapshotsDir: tempDir,
+    });
+
+    expect(latest?.generatedAt).toBe('2026-03-12T03:00:00.000Z');
   });
 
   test('builds deterministic site strengths and ranking', () => {

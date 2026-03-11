@@ -8,6 +8,7 @@ const SNAPSHOTS_DIR = path.resolve(process.cwd(), 'camp sites', 'availability');
 export type AvailabilitySnapshot = {
   generatedAt: string;
   searchedAt: string;
+  snapshotKind?: 'site-calendar' | 'projection';
   loop: string;
   stayLength: string;
   seedDate: string;
@@ -69,6 +70,7 @@ function normalizeSnapshot(raw: Partial<AvailabilitySnapshot> & { searchedAt?: s
   return {
     generatedAt,
     searchedAt: raw.searchedAt ?? generatedAt,
+    ...(raw.snapshotKind ? { snapshotKind: raw.snapshotKind } : {}),
     loop: raw.loop ?? '',
     stayLength: raw.stayLength ?? '',
     seedDate: raw.seedDate ?? '',
@@ -123,8 +125,10 @@ function isDateInSnapshot(snapshot: AvailabilitySnapshot, targetDate: string): b
 
 function findLatestAvailabilitySnapshot(options: {
   loop?: string;
+  stayLength?: string;
   targetDate?: string;
   siteListSource?: string;
+  snapshotKind?: AvailabilitySnapshot['snapshotKind'];
   snapshotsDir?: string;
 }): { snapshotPath: string; snapshot: AvailabilitySnapshot } | null {
   const snapshotsDir = options.snapshotsDir
@@ -144,8 +148,20 @@ function findLatestAvailabilitySnapshot(options: {
       if (options.loop && snapshot.loop.toUpperCase() !== options.loop.toUpperCase()) {
         return false;
       }
+      if (options.stayLength && snapshot.stayLength !== options.stayLength) {
+        return false;
+      }
       if (options.siteListSource && snapshot.siteListSource !== options.siteListSource) {
         return false;
+      }
+      if (options.snapshotKind) {
+        if (options.snapshotKind === 'site-calendar') {
+          if (snapshot.snapshotKind && snapshot.snapshotKind !== 'site-calendar') {
+            return false;
+          }
+        } else if (snapshot.snapshotKind !== options.snapshotKind) {
+          return false;
+        }
       }
       if (options.targetDate && !isDateInSnapshot(snapshot, options.targetDate)) {
         return false;
@@ -159,8 +175,10 @@ function findLatestAvailabilitySnapshot(options: {
 
 export function resolveLatestAvailabilitySnapshotPath(options: {
   loop?: string;
+  stayLength?: string;
   targetDate?: string;
   siteListSource?: string;
+  snapshotKind?: AvailabilitySnapshot['snapshotKind'];
   snapshotsDir?: string;
 }): string | null {
   return findLatestAvailabilitySnapshot(options)?.snapshotPath ?? null;
@@ -168,8 +186,10 @@ export function resolveLatestAvailabilitySnapshotPath(options: {
 
 export function loadLatestAvailabilitySnapshot(options: {
   loop?: string;
+  stayLength?: string;
   targetDate?: string;
   siteListSource?: string;
+  snapshotKind?: AvailabilitySnapshot['snapshotKind'];
   snapshotsDir?: string;
 }): AvailabilitySnapshot | null {
   return findLatestAvailabilitySnapshot(options)?.snapshot ?? null;

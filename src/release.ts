@@ -23,6 +23,7 @@ import { normalizeNotificationProfile } from './notify';
 import { loadSiteList } from './site-lists';
 import { buildReleaseRaceArgs, resolveProjectionAt, resolveReleaseSchedule, selectReleaseSites } from './release-utils';
 import { fetchSiteCalendarAvailability, resolveRequestedSiteRecords } from './site-calendar';
+import { mapWithConcurrency } from './site-availability-utils';
 import {
   buildProjectionEndDate,
   buildProjectionShortlistBasePath,
@@ -200,9 +201,14 @@ async function resolveTargetSites(
     length: stayLength,
     loop,
   });
+  const liveSites = loadedSiteList
+    ? search.exactDateMatches
+        .map((site) => site.site)
+        .filter((site) => loadedSiteList.siteIds.includes(site.toUpperCase()))
+    : search.exactDateMatches.map((site) => site.site);
   const selectedSites = selectReleaseSites(
     rankRequestedSitesForCapture(
-      search.exactDateMatches.map((site) => site.site),
+      liveSites,
       availabilitySnapshot,
       loadedSiteList,
     ),
@@ -230,13 +236,17 @@ async function runProjectionShortlist(
 
   const projectionEndDate = buildProjectionEndDate(targetDate, stayLength);
   const resolved = await resolveRequestedSiteRecords(targetDate, stayLength, loop, candidateSites);
-  const results = await Promise.all(
-    resolved.found.map((siteRecord) => fetchSiteCalendarAvailability(siteRecord, targetDate, stayLength, projectionEndDate)),
+  const projectionConcurrency = Math.min(Math.max(1, concurrency), 4);
+  const results = await mapWithConcurrency(
+    resolved.found,
+    projectionConcurrency,
+    (siteRecord) => fetchSiteCalendarAvailability(siteRecord, targetDate, stayLength, projectionEndDate),
   );
 
   const snapshot: AvailabilitySnapshot = {
     generatedAt: new Date().toISOString(),
     searchedAt: new Date().toISOString(),
+    snapshotKind: 'projection',
     loop,
     stayLength,
     seedDate: targetDate,
@@ -278,8 +288,10 @@ async function main(): Promise<void> {
     || (loadedSiteList
       ? resolveLatestAvailabilitySnapshotPath({
           loop,
+          stayLength,
           targetDate,
           siteListSource: loadedSiteList.sourcePath,
+          snapshotKind: 'site-calendar',
         }) ?? ''
       : '');
   let availabilitySnapshot = resolvedAvailabilitySnapshotPath
@@ -346,14 +358,12 @@ async function main(): Promise<void> {
       console.warn('[Release] No exact-fit sites were found. Falling back to partial-fit sites because --projectionPolicy allow-partial was selected.');
     }
   } else {
-    if (explicitSites.length === 0 && !loadedSiteList) {
+    if (explicitSites.length === 0) {
       await waitUntil(schedule.scoutAt, 'site scout');
     }
-    resolvedSites = rankRequestedSitesForCapture(
-      loadedSiteList?.siteIds ?? await resolveTargetSites(availabilitySnapshot, loadedSiteList),
-      availabilitySnapshot,
-      loadedSiteList,
-    );
+    resolvedSites = explicitSites.length > 0
+      ? explicitSites
+      : await resolveTargetSites(availabilitySnapshot, loadedSiteList);
   }
 
   console.log('[Release] Resolved launch plan:');

@@ -128,6 +128,7 @@ async function main(): Promise<void> {
   const report: AvailabilitySnapshot = {
     generatedAt: new Date().toISOString(),
     searchedAt: new Date().toISOString(),
+    snapshotKind: 'site-calendar',
     loop,
     stayLength,
     seedDate: dateFrom,
