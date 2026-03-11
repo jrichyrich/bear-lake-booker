@@ -1,4 +1,5 @@
 import {
+  buildArrivalSweepSummary,
   buildAvailableRanges,
   buildFutureAvailableRanges,
   mergeSiteCalendarPages,
@@ -118,6 +119,28 @@ describe('site calendar parsing', () => {
     ]);
 
     expect(ranges).toEqual([
+      { startDate: '07/12/2026', endDate: '07/13/2026', nights: 2 },
+      { startDate: '07/15/2026', endDate: '07/15/2026', nights: 1 },
+    ]);
+  });
+
+  test('builds arrival sweep summary from selected-day statuses', () => {
+    const summary = buildArrivalSweepSummary([
+      { date: '07/11/2026', status: 'A', reservable: true, futureReservable: false },
+      { date: '07/12/2026', status: 'a', reservable: false, futureReservable: true },
+      { date: '07/13/2026', status: 'a', reservable: false, futureReservable: true },
+      { date: '07/14/2026', status: 'X', reservable: false, futureReservable: false },
+      { date: '07/15/2026', status: 'a', reservable: false, futureReservable: true },
+    ]);
+
+    expect(summary.firstAvailableArrivalDate).toBe('07/11/2026');
+    expect(summary.firstFutureAvailableArrivalDate).toBe('07/12/2026');
+    expect(summary.maxConsecutiveAvailableArrivals).toBe(1);
+    expect(summary.maxConsecutiveFutureAvailableArrivals).toBe(2);
+    expect(summary.availableArrivalRanges).toEqual([
+      { startDate: '07/11/2026', endDate: '07/11/2026', nights: 1 },
+    ]);
+    expect(summary.futureAvailableArrivalRanges).toEqual([
       { startDate: '07/12/2026', endDate: '07/13/2026', nights: 2 },
       { startDate: '07/15/2026', endDate: '07/15/2026', nights: 1 },
     ]);

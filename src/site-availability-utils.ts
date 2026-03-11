@@ -24,8 +24,26 @@ function formatFutureRanges(result: SiteCalendarResult): string {
     .join('; ');
 }
 
+function formatArrivalRanges(ranges: SiteCalendarResult['availableArrivalRanges']): string {
+  if (!ranges || ranges.length === 0) {
+    return 'none';
+  }
+
+  return ranges
+    .map((range) => `${range.startDate} -> ${range.endDate} (${range.nights} arrival date${range.nights === 1 ? '' : 's'})`)
+    .join('; ');
+}
+
+export function resolveArrivalSweepEndDate(dateFrom: string, dateTo: string | undefined, arrivalSweep: boolean): string | undefined {
+  if (!arrivalSweep) {
+    return undefined;
+  }
+
+  return dateTo ?? dateFrom;
+}
+
 export function formatSiteCalendarResult(result: SiteCalendarResult): string[] {
-  return [
+  const lines = [
     `${result.site} (${result.loop}) | siteId=${result.siteId} | pages=${result.pagesFetched}`,
     `  seedDateBookableNow: ${result.seedDateBookableNow ? 'yes' : 'no'}`,
     `  maxReservationWindowDate: ${result.maxReservationWindowDate ?? '-'}`,
@@ -38,6 +56,17 @@ export function formatSiteCalendarResult(result: SiteCalendarResult): string[] {
     `  availableRanges: ${formatRanges(result)}`,
     `  futureAvailableRanges: ${formatFutureRanges(result)}`,
   ];
+
+  if (result.arrivalStatuses) {
+    lines.push(`  firstAvailableArrivalDate: ${result.firstAvailableArrivalDate ?? '-'}`);
+    lines.push(`  firstFutureAvailableArrivalDate: ${result.firstFutureAvailableArrivalDate ?? '-'}`);
+    lines.push(`  maxConsecutiveAvailableArrivals: ${result.maxConsecutiveAvailableArrivals ?? 0}`);
+    lines.push(`  maxConsecutiveFutureAvailableArrivals: ${result.maxConsecutiveFutureAvailableArrivals ?? 0}`);
+    lines.push(`  availableArrivalRanges: ${formatArrivalRanges(result.availableArrivalRanges)}`);
+    lines.push(`  futureAvailableArrivalRanges: ${formatArrivalRanges(result.futureAvailableArrivalRanges)}`);
+  }
+
+  return lines;
 }
 
 export async function mapWithConcurrency<T, R>(
@@ -104,6 +133,14 @@ export function buildSiteAvailabilityMarkdownReport(report: AvailabilitySnapshot
     lines.push(`- Max reservation window date: ${result.maxReservationWindowDate ?? '-'}`);
     lines.push(`- Available ranges: ${formatRanges(result)}`);
     lines.push(`- Future-available ranges: ${formatFutureRanges(result)}`);
+    if (result.arrivalStatuses) {
+      lines.push(`- First available arrival date: ${result.firstAvailableArrivalDate ?? '-'}`);
+      lines.push(`- First future-available arrival date: ${result.firstFutureAvailableArrivalDate ?? '-'}`);
+      lines.push(`- Max consecutive available arrival dates: ${result.maxConsecutiveAvailableArrivals ?? 0}`);
+      lines.push(`- Max consecutive future-available arrival dates: ${result.maxConsecutiveFutureAvailableArrivals ?? 0}`);
+      lines.push(`- Available arrival ranges: ${formatArrivalRanges(result.availableArrivalRanges)}`);
+      lines.push(`- Future-available arrival ranges: ${formatArrivalRanges(result.futureAvailableArrivalRanges)}`);
+    }
     lines.push('');
   }
 
@@ -126,6 +163,12 @@ export function buildSiteAvailabilityCsvReport(report: AvailabilitySnapshot): st
     'maxFutureConsecutiveNights',
     'availableRanges',
     'futureAvailableRanges',
+    'firstAvailableArrivalDate',
+    'firstFutureAvailableArrivalDate',
+    'maxConsecutiveAvailableArrivals',
+    'maxConsecutiveFutureAvailableArrivals',
+    'availableArrivalRanges',
+    'futureAvailableArrivalRanges',
   ];
 
   const rows = report.results.map((result) => [
@@ -143,6 +186,12 @@ export function buildSiteAvailabilityCsvReport(report: AvailabilitySnapshot): st
     String(result.maxFutureConsecutiveNights),
     formatRanges(result),
     formatFutureRanges(result),
+    result.firstAvailableArrivalDate ?? '',
+    result.firstFutureAvailableArrivalDate ?? '',
+    String(result.maxConsecutiveAvailableArrivals ?? 0),
+    String(result.maxConsecutiveFutureAvailableArrivals ?? 0),
+    formatArrivalRanges(result.availableArrivalRanges),
+    formatArrivalRanges(result.futureAvailableArrivalRanges),
   ]);
 
   return [header, ...rows]

@@ -4,6 +4,19 @@ export type ReleaseSchedule = {
   scoutAt: Date;
 };
 
+export function resolveProjectionAt(launchAt: Date, projectionLeadMinutes: number, warmupAt: Date): Date {
+  if (projectionLeadMinutes < 0) {
+    throw new Error('Projection lead time must be non-negative.');
+  }
+
+  const projectionAt = new Date(launchAt.getTime() - projectionLeadMinutes * 60_000);
+  if (projectionAt.getTime() > warmupAt.getTime()) {
+    throw new Error('Projection lead time must be greater than or equal to warmup lead time.');
+  }
+
+  return projectionAt;
+}
+
 function parseTimeParts(value: string): [number, number, number] {
   const match = /^(\d{2}):(\d{2}):(\d{2})$/.exec(value.trim());
   if (!match) {
@@ -76,6 +89,10 @@ const WRAPPER_ONLY_OPTIONS: StripOptionConfig[] = [
   { name: '--launchTime', takesValue: true },
   { name: '--scoutLeadMinutes', takesValue: true },
   { name: '--warmupLeadSeconds', takesValue: true },
+  { name: '--projectionMode', takesValue: true },
+  { name: '--projectionPolicy', takesValue: true },
+  { name: '--projectionLeadMinutes', takesValue: true },
+  { name: '--allowProjectionOutsideWindowEdge', takesValue: false },
   { name: '--notificationProfile', takesValue: true },
   { name: '--siteList', takesValue: true },
   { name: '--siteListSource', takesValue: true },

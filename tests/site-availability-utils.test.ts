@@ -2,6 +2,7 @@ import {
   buildSiteAvailabilityCsvReport,
   buildSiteAvailabilityMarkdownReport,
   mapWithConcurrency,
+  resolveArrivalSweepEndDate,
 } from '../src/site-availability-utils';
 import type { AvailabilitySnapshot } from '../src/availability-snapshots';
 
@@ -82,5 +83,11 @@ describe('site availability utils', () => {
 
     expect(results).toEqual([10, 20, 30, 40]);
     expect(Math.max(...activeCounts)).toBeLessThanOrEqual(2);
+  });
+
+  test('uses the seed date as the arrival sweep end when no dateTo is provided', () => {
+    expect(resolveArrivalSweepEndDate('07/15/2026', undefined, true)).toBe('07/15/2026');
+    expect(resolveArrivalSweepEndDate('07/15/2026', '07/20/2026', true)).toBe('07/20/2026');
+    expect(resolveArrivalSweepEndDate('07/15/2026', '07/20/2026', false)).toBeUndefined();
   });
 });

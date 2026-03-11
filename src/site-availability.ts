@@ -6,12 +6,14 @@ import {
   type AvailabilitySnapshot,
 } from './availability-snapshots';
 import {
+  fetchSiteArrivalSweep,
   fetchSiteCalendarAvailability,
   resolveRequestedSiteRecords,
 } from './site-calendar';
 import {
   formatSiteCalendarResult,
   mapWithConcurrency,
+  resolveArrivalSweepEndDate,
   writeSiteAvailabilityReport,
 } from './site-availability-utils';
 
@@ -25,6 +27,7 @@ const { values } = parseArgs({
     siteList: { type: 'string' },
     concurrency: { type: 'string', default: '4' },
     out: { type: 'string' },
+    arrivalSweep: { type: 'boolean', default: false },
     json: { type: 'boolean', default: false },
     help: { type: 'boolean', short: 'h' },
   },
@@ -46,6 +49,7 @@ Options:
   --siteList <name-or-path>    Ranked site list from camp sites or a path
   --concurrency <n>            Number of site crawls to run in parallel [default: 4]
   --out <path>                 Write an additional report file (.md, .csv, or .json)
+  --arrivalSweep               Probe each arrival date in the window for this stay length
   --json                       Print machine-readable JSON after the console summary
   -h, --help                   Show help
   `);
@@ -66,6 +70,7 @@ const requestedSites = explicitSites.length > 0 ? explicitSites : loadedSiteList
 const siteListSource = loadedSiteList?.sourcePath;
 const concurrency = Math.max(1, parseInt((values.concurrency as string) ?? '4', 10) || 4);
 const outputPath = typeof values.out === 'string' ? values.out : undefined;
+const arrivalSweep = values.arrivalSweep === true;
 const printJson = values.json === true;
 
 async function main(): Promise<void> {
@@ -85,13 +90,28 @@ async function main(): Promise<void> {
     console.log(`Site list source: ${siteListSource}`);
   }
   console.log(`Concurrency: ${concurrency}`);
+  if (arrivalSweep) {
+    console.log('Arrival sweep: enabled');
+  }
   console.log('');
 
+  const arrivalSweepEndDate = resolveArrivalSweepEndDate(dateFrom, dateTo, arrivalSweep);
   const resolved = await resolveRequestedSiteRecords(dateFrom, stayLength, loop, requestedSites);
   const results = await mapWithConcurrency(
     resolved.found,
     concurrency,
-    async (siteRecord) => fetchSiteCalendarAvailability(siteRecord, dateFrom, stayLength, dateTo),
+    async (siteRecord) => {
+      const result = await fetchSiteCalendarAvailability(siteRecord, dateFrom, stayLength, dateTo);
+      if (!arrivalSweepEndDate) {
+        return result;
+      }
+
+      const sweep = await fetchSiteArrivalSweep(siteRecord, dateFrom, stayLength, arrivalSweepEndDate);
+      return {
+        ...result,
+        ...sweep,
+      };
+    },
   );
 
   for (const result of results) {

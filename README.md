@@ -73,6 +73,7 @@ If present, `race.ts` sends one end-of-run inventory summary to each configured 
 - Scheduled race from a ranked site list: `npm run race -- -d 08/15/2026 -l 3 -o BIRCH -c 10 -t 07:59:59 --siteList preferred-sites --book --notificationProfile production`
 - Release/rehearsal wrapper: `npm run release -- --launchTime 07:59:59 -d 08/15/2026 -l 3 -o BIRCH -c 6 --book --accounts lisa@gmail.com,jason@gmail.com --headed --checkoutAuthMode manual --notificationProfile test`
 - Release wrapper from a ranked site list: `npm run release -- --launchTime 07:59:59 -d 08/15/2026 -l 3 -o BIRCH -c 6 --book --accounts lisa@gmail.com,jason@gmail.com --siteList preferred-sites --headed --checkoutAuthMode manual --notificationProfile test`
+- Release-day projection wrapper: `npm run release -- --launchTime 07:59:59 -d 07/15/2026 -l 14 -o BIRCH -c 6 --book --accounts lisa@gmail.com,jason@gmail.com --siteList preferred-sites --projectionMode window-edge --headed --checkoutAuthMode manual --notificationProfile test`
 - Multi-account run: `npm run race -- -d 08/15/2026 -l 3 -o BIRCH -c 4 --book --accounts lisa@gmail.com,jason@gmail.com`
 - Multi-hold mode: `npm run race -- -d 08/15/2026 -l 3 -o BIRCH -c 4 --book --bookingMode multi --maxHolds 2 --accounts lisa@gmail.com,jason@gmail.com`
 
@@ -99,6 +100,8 @@ If present, `race.ts` sends one end-of-run inventory summary to each configured 
 - `--sites <csv>`: restrict capture to explicit site IDs.
 - `--siteList <name-or-path>`: load ranked allowed sites from `camp sites/<name>.md` or a path.
 - `--availabilitySnapshot <path>`: rank allowed sites using a stored availability snapshot while still relying on live availability.
+- `--projectionMode window-edge`: generate a release-morning shortlist from the exact window-edge target date before booking.
+- `--projectionPolicy exact-fit-only|allow-partial`: choose whether release booking falls back to partial projected fits when no exact fit exists.
 - `--headed`: run visible browsers for debugging or manual intervention.
 - `--checkoutAuthMode auto|manual`: choose how checkout re-auth is handled.
 - `--notificationProfile test|production`: choose which iMessage recipient profile gets the final inventory summary.
@@ -108,6 +111,16 @@ If present, `race.ts` sends one end-of-run inventory summary to each configured 
 - `--launchTime <HH:MM:SS>`: required launch time for today.
 - `--scoutLeadMinutes <mins>`: when to freeze the scout target set before launch.
 - `--warmupLeadSeconds <secs>`: when to start `race.ts` warm-up before launch.
+- `--projectionLeadMinutes <mins>`: when to run the release-morning projection crawl before launch.
+- `--allowProjectionOutsideWindowEdge`: bypass the safety check when the target date is not exactly today + 4 months.
+
+In `--projectionMode window-edge`, the wrapper:
+
+1. validates sessions and empty carts
+2. waits until the projection time
+3. crawls the exact target arrival date and stay length for the allowed sites
+4. writes a dated shortlist JSON/Markdown under [`camp sites/availability`](/Users/jasricha/Documents/Github_Personal/bear-lake-booker/camp%20sites/availability)
+5. books only the exact-fit sites by default
 
 ## Safe Boundary
 The automation boundary is still intentional: Bear Lake Booker can reach the shopping cart hold state, but it does not complete checkout or payment. ReserveAmerica may still require a CAPTCHA or checkout login during capture, so the live workflow is:

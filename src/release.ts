@@ -12,6 +12,8 @@ import {
   loadLatestAvailabilitySnapshot,
   resolveLatestAvailabilitySnapshotPath,
   rankRequestedSitesForCapture,
+  writeAvailabilitySnapshot,
+  type AvailabilitySnapshot,
 } from './availability-snapshots';
 import { inspectCartState } from './automation';
 import { sleep } from './automation';
@@ -19,7 +21,18 @@ import { ensureActiveSession } from './session-manager';
 import { getAccountDisplayName, normalizeCliAccounts, sessionExists, getReadableSessionPath } from './session-utils';
 import { normalizeNotificationProfile } from './notify';
 import { loadSiteList } from './site-lists';
-import { buildReleaseRaceArgs, resolveReleaseSchedule, selectReleaseSites } from './release-utils';
+import { buildReleaseRaceArgs, resolveProjectionAt, resolveReleaseSchedule, selectReleaseSites } from './release-utils';
+import { fetchSiteCalendarAvailability, resolveRequestedSiteRecords } from './site-calendar';
+import {
+  buildProjectionEndDate,
+  buildProjectionShortlistBasePath,
+  classifyProjectionResults,
+  computeExpectedWindowEdgeDate,
+  formatLocalLaunchDate,
+  writeProjectionShortlistJson,
+  writeProjectionShortlistMarkdown,
+  type ProjectionShortlist,
+} from './projection-shortlists';
 
 const args = process.argv.slice(2);
 
@@ -35,6 +48,10 @@ const { values } = parseArgs({
     sites: { type: 'string' },
     siteList: { type: 'string' },
     availabilitySnapshot: { type: 'string' },
+    projectionMode: { type: 'string' },
+    projectionPolicy: { type: 'string', default: 'exact-fit-only' },
+    projectionLeadMinutes: { type: 'string', default: '10' },
+    allowProjectionOutsideWindowEdge: { type: 'boolean', default: false },
     headed: { type: 'boolean', default: false },
     checkoutAuthMode: { type: 'string' },
     notificationProfile: { type: 'string', default: 'test' },
@@ -64,6 +81,10 @@ Common options:
   --sites <csv>                Explicit site override (skip scout)
   --siteList <name-or-path>    Ranked site list from camp sites or a path
   --availabilitySnapshot <path>  Rank preferred sites using a stored availability snapshot
+  --projectionMode <mode>        Enable day-of projection flow (supported: window-edge)
+  --projectionPolicy <policy>    exact-fit-only or allow-partial [default: exact-fit-only]
+  --projectionLeadMinutes <mins> Minutes before launch to run the projection crawl [default: 10]
+  --allowProjectionOutsideWindowEdge  Allow projection when target date is not today's 4-month edge
   --notificationProfile <name> test or production [default: test]
   --scoutLeadMinutes <mins>    Minutes before launch to freeze scout [default: 2]
   --warmupLeadSeconds <secs>   Seconds before launch to start race warmup [default: 45]
@@ -80,6 +101,7 @@ const loop = values.loop as string;
 const concurrency = parseInt(values.concurrency as string, 10);
 const scoutLeadMinutes = parseInt(values.scoutLeadMinutes as string, 10);
 const warmupLeadSeconds = parseInt(values.warmupLeadSeconds as string, 10);
+const projectionLeadMinutes = parseInt(values.projectionLeadMinutes as string, 10);
 const explicitSites = typeof values.sites === 'string'
   ? values.sites.split(',').map((site) => site.trim().toUpperCase()).filter(Boolean)
   : [];
@@ -92,6 +114,9 @@ const requestedAccounts = typeof values.accounts === 'string'
   : [undefined];
 const headed = values.headed === true;
 const notificationProfile = normalizeNotificationProfile(values.notificationProfile as string | undefined);
+const projectionMode = typeof values.projectionMode === 'string' ? values.projectionMode.trim().toLowerCase() : '';
+const projectionPolicy = values.projectionPolicy === 'allow-partial' ? 'allow-partial' : 'exact-fit-only';
+const allowProjectionOutsideWindowEdge = values.allowProjectionOutsideWindowEdge === true;
 const checkoutAuthMode: 'auto' | 'manual' = values.checkoutAuthMode === 'auto'
   ? 'auto'
   : values.checkoutAuthMode === 'manual'
@@ -189,10 +214,67 @@ async function resolveTargetSites(
   return selectedSites;
 }
 
+async function runProjectionShortlist(
+  loadedSiteList: ReturnType<typeof loadSiteList> | null,
+  launchDate: string,
+): Promise<{
+  shortlist: ProjectionShortlist;
+  snapshotPath: string;
+  shortlistJsonPath: string;
+  shortlistMarkdownPath: string;
+}> {
+  const candidateSites = explicitSites.length > 0 ? explicitSites : loadedSiteList?.siteIds ?? [];
+  if (candidateSites.length === 0) {
+    throw new Error('Projection mode requires --siteList or --sites so it has a constrained site set to evaluate.');
+  }
+
+  const projectionEndDate = buildProjectionEndDate(targetDate, stayLength);
+  const resolved = await resolveRequestedSiteRecords(targetDate, stayLength, loop, candidateSites);
+  const results = await Promise.all(
+    resolved.found.map((siteRecord) => fetchSiteCalendarAvailability(siteRecord, targetDate, stayLength, projectionEndDate)),
+  );
+
+  const snapshot: AvailabilitySnapshot = {
+    generatedAt: new Date().toISOString(),
+    searchedAt: new Date().toISOString(),
+    loop,
+    stayLength,
+    seedDate: targetDate,
+    dateTo: projectionEndDate,
+    requestedSites: candidateSites,
+    missingSites: resolved.missing,
+    results,
+    ...(loadedSiteList?.sourcePath ? { siteListSource: loadedSiteList.sourcePath } : {}),
+  };
+  const snapshotPath = writeAvailabilitySnapshot(snapshot);
+
+  const shortlist = classifyProjectionResults(results, targetDate, stayLength);
+  shortlist.generatedAt = snapshot.generatedAt;
+  shortlist.launchDate = launchDate;
+  shortlist.loop = loop;
+  if (loadedSiteList?.sourcePath) {
+    shortlist.siteListSource = loadedSiteList.sourcePath;
+  }
+
+  const basePath = buildProjectionShortlistBasePath(shortlist);
+  const shortlistJsonPath = writeProjectionShortlistJson(shortlist, `${basePath}.json`);
+  const shortlistMarkdownPath = writeProjectionShortlistMarkdown(shortlist, `${basePath}.md`);
+
+  return {
+    shortlist,
+    snapshotPath,
+    shortlistJsonPath,
+    shortlistMarkdownPath,
+  };
+}
+
 async function main(): Promise<void> {
   const schedule = resolveReleaseSchedule(new Date(), launchTime, scoutLeadMinutes, warmupLeadSeconds);
+  const projectionAt = projectionMode === 'window-edge'
+    ? resolveProjectionAt(schedule.launchAt, projectionLeadMinutes, schedule.warmupAt)
+    : null;
   const loadedSiteList = explicitSites.length === 0 && siteListSpec ? loadSiteList(siteListSpec) : null;
-  const resolvedAvailabilitySnapshotPath = explicitAvailabilitySnapshot
+  let resolvedAvailabilitySnapshotPath = explicitAvailabilitySnapshot
     || (loadedSiteList
       ? resolveLatestAvailabilitySnapshotPath({
           loop,
@@ -200,7 +282,7 @@ async function main(): Promise<void> {
           siteListSource: loadedSiteList.sourcePath,
         }) ?? ''
       : '');
-  const availabilitySnapshot = resolvedAvailabilitySnapshotPath
+  let availabilitySnapshot = resolvedAvailabilitySnapshotPath
     ? loadAvailabilitySnapshot(resolvedAvailabilitySnapshotPath)
     : null;
 
@@ -209,6 +291,10 @@ async function main(): Promise<void> {
   console.log(`[Release] Launch time: ${launchTime}`);
   console.log(`[Release] Scout time: ${formatClock(schedule.scoutAt)}`);
   console.log(`[Release] Warmup start: ${formatClock(schedule.warmupAt)}`);
+  if (projectionAt) {
+    console.log(`[Release] Projection time: ${formatClock(projectionAt)}`);
+    console.log(`[Release] Projection policy: ${projectionPolicy}`);
+  }
   console.log(`[Release] Notification profile: ${notificationProfile}`);
   if (loadedSiteList) {
     console.log(`[Release] Site list source: ${loadedSiteList.sourcePath}`);
@@ -222,14 +308,53 @@ async function main(): Promise<void> {
     await ensureSessionAndEmptyCart(account);
   }
 
-  if (explicitSites.length === 0 && !loadedSiteList) {
-    await waitUntil(schedule.scoutAt, 'site scout');
+  let resolvedSites: string[];
+  if (projectionMode === 'window-edge') {
+    const expectedEdgeDate = computeExpectedWindowEdgeDate(schedule.launchAt);
+    if (targetDate !== expectedEdgeDate) {
+      const warning = `[Release] Projection mode expects the window-edge target date ${expectedEdgeDate}, but got ${targetDate}.`;
+      if (!allowProjectionOutsideWindowEdge) {
+        throw new Error(`${warning} Re-run with --allowProjectionOutsideWindowEdge to override.`);
+      }
+      console.warn(warning);
+    }
+
+    if (!projectionAt) {
+      throw new Error('Projection time was not resolved.');
+    }
+    await waitUntil(projectionAt, 'release-morning projection');
+    const launchDate = formatLocalLaunchDate(schedule.launchAt);
+    const projection = await runProjectionShortlist(loadedSiteList, launchDate);
+    resolvedAvailabilitySnapshotPath = projection.snapshotPath;
+    availabilitySnapshot = loadAvailabilitySnapshot(resolvedAvailabilitySnapshotPath);
+
+    console.log('[Release] Projection shortlist generated:');
+    console.log(`  Snapshot: ${projection.snapshotPath}`);
+    console.log(`  Shortlist JSON: ${projection.shortlistJsonPath}`);
+    console.log(`  Shortlist Markdown: ${projection.shortlistMarkdownPath}`);
+    console.log(`  Exact fit sites: ${projection.shortlist.exactFitSites.map((site) => site.site).join(', ') || '-'}`);
+    console.log(`  Partial fit sites: ${projection.shortlist.partialFitSites.map((site) => site.site).join(', ') || '-'}`);
+
+    resolvedSites = projection.shortlist.exactFitSites.map((site) => site.site);
+    if (resolvedSites.length === 0) {
+      if (projectionPolicy === 'allow-partial') {
+        resolvedSites = projection.shortlist.partialFitSites.map((site) => site.site);
+      }
+      if (resolvedSites.length === 0) {
+        throw new Error(`[Release] Projection produced no exact-fit booking targets for ${targetDate}. Shortlist saved; stopping before launch.`);
+      }
+      console.warn('[Release] No exact-fit sites were found. Falling back to partial-fit sites because --projectionPolicy allow-partial was selected.');
+    }
+  } else {
+    if (explicitSites.length === 0 && !loadedSiteList) {
+      await waitUntil(schedule.scoutAt, 'site scout');
+    }
+    resolvedSites = rankRequestedSitesForCapture(
+      loadedSiteList?.siteIds ?? await resolveTargetSites(availabilitySnapshot, loadedSiteList),
+      availabilitySnapshot,
+      loadedSiteList,
+    );
   }
-  const resolvedSites = rankRequestedSitesForCapture(
-    loadedSiteList?.siteIds ?? await resolveTargetSites(availabilitySnapshot, loadedSiteList),
-    availabilitySnapshot,
-    loadedSiteList,
-  );
 
   console.log('[Release] Resolved launch plan:');
   console.log(`  Date: ${targetDate}`);

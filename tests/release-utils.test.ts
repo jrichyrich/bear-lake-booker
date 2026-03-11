@@ -1,5 +1,6 @@
 import {
   buildReleaseRaceArgs,
+  resolveProjectionAt,
   resolveReleaseSchedule,
   selectReleaseSites,
 } from '../src/release-utils';
@@ -18,6 +19,13 @@ describe('release-utils', () => {
     const now = new Date('2026-03-10T10:00:00-07:00');
 
     expect(() => resolveReleaseSchedule(now, '09:59:59', 2, 45)).toThrow('already in the past');
+  });
+
+  test('resolves projection time before warmup', () => {
+    const launchAt = new Date('2026-03-10T15:15:30.000Z');
+    const warmupAt = new Date('2026-03-10T15:14:45.000Z');
+
+    expect(resolveProjectionAt(launchAt, 10, warmupAt).toISOString()).toBe('2026-03-10T15:05:30.000Z');
   });
 
   test('explicit site overrides are preserved as-is', () => {
@@ -74,6 +82,24 @@ describe('release-utils', () => {
       '--siteListSource', '/repo/camp sites/preferred-sites.md',
       '--availabilitySnapshot', '/repo/camp sites/availability/june.json',
       '--sites', 'BH03,BH09',
+    ]);
+  });
+
+  test('projection-only args are stripped before building race args', () => {
+    expect(buildReleaseRaceArgs([
+      '--launchTime', '07:59:59',
+      '--projectionMode', 'window-edge',
+      '--projectionPolicy', 'exact-fit-only',
+      '--projectionLeadMinutes', '10',
+      '--allowProjectionOutsideWindowEdge',
+      '-d', '07/15/2026',
+      '--book',
+    ], '07:59:59', ['BH32'], 'test')).toEqual([
+      '-d', '07/15/2026',
+      '--book',
+      '--time', '07:59:59',
+      '--notificationProfile', 'test',
+      '--sites', 'BH32',
     ]);
   });
 });

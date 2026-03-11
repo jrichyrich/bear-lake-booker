@@ -35,6 +35,13 @@ export type SiteCalendarResult = {
   availableRanges: SiteAvailabilityRange[];
   futureAvailableRanges: SiteAvailabilityRange[];
   days: SiteCalendarDay[];
+  firstAvailableArrivalDate?: string;
+  firstFutureAvailableArrivalDate?: string;
+  maxConsecutiveAvailableArrivals?: number;
+  maxConsecutiveFutureAvailableArrivals?: number;
+  availableArrivalRanges?: SiteAvailabilityRange[];
+  futureAvailableArrivalRanges?: SiteAvailabilityRange[];
+  arrivalStatuses?: SiteCalendarDay[];
 };
 
 export type SiteRecord = {
@@ -289,6 +296,32 @@ export function buildFutureAvailableRanges(days: SiteCalendarDay[]): SiteAvailab
   return buildRangesByPredicate(days, (day) => day.futureReservable);
 }
 
+export function buildArrivalSweepSummary(arrivalStatuses: SiteCalendarDay[]): Pick<
+  SiteCalendarResult,
+  | 'firstAvailableArrivalDate'
+  | 'firstFutureAvailableArrivalDate'
+  | 'maxConsecutiveAvailableArrivals'
+  | 'maxConsecutiveFutureAvailableArrivals'
+  | 'availableArrivalRanges'
+  | 'futureAvailableArrivalRanges'
+  | 'arrivalStatuses'
+> {
+  const availableArrivalRanges = buildAvailableRanges(arrivalStatuses);
+  const futureAvailableArrivalRanges = buildFutureAvailableRanges(arrivalStatuses);
+  const firstAvailableArrivalDate = availableArrivalRanges[0]?.startDate;
+  const firstFutureAvailableArrivalDate = futureAvailableArrivalRanges[0]?.startDate;
+
+  return {
+    ...(firstAvailableArrivalDate ? { firstAvailableArrivalDate } : {}),
+    ...(firstFutureAvailableArrivalDate ? { firstFutureAvailableArrivalDate } : {}),
+    maxConsecutiveAvailableArrivals: availableArrivalRanges.reduce((max, range) => Math.max(max, range.nights), 0),
+    maxConsecutiveFutureAvailableArrivals: futureAvailableArrivalRanges.reduce((max, range) => Math.max(max, range.nights), 0),
+    availableArrivalRanges,
+    futureAvailableArrivalRanges,
+    arrivalStatuses,
+  };
+}
+
 function clipDaysToDateRange(days: SiteCalendarDay[], dateFrom: string, dateTo?: string): SiteCalendarDay[] {
   const startMs = parseDate(dateFrom).getTime();
   const endMs = dateTo ? parseDate(dateTo).getTime() : null;
@@ -474,4 +507,36 @@ export async function fetchSiteCalendarAvailability(
     ...(firstAvailableDate ? { firstAvailableDate } : {}),
     ...(firstFutureAvailableDate ? { firstFutureAvailableDate } : {}),
   };
+}
+
+export async function fetchSiteArrivalSweep(
+  siteRecord: SiteRecord,
+  dateFrom: string,
+  stayLength: string,
+  dateTo: string,
+): Promise<Pick<
+  SiteCalendarResult,
+  | 'firstAvailableArrivalDate'
+  | 'firstFutureAvailableArrivalDate'
+  | 'maxConsecutiveAvailableArrivals'
+  | 'maxConsecutiveFutureAvailableArrivals'
+  | 'availableArrivalRanges'
+  | 'futureAvailableArrivalRanges'
+  | 'arrivalStatuses'
+>> {
+  const arrivalStatuses: SiteCalendarDay[] = [];
+  let currentDate = dateFrom;
+
+  while (compareDates(currentDate, dateTo) <= 0) {
+    const singleDateResult = await fetchSiteCalendarAvailability(siteRecord, currentDate, stayLength, currentDate);
+    const selectedDay = singleDateResult.days.find((day) => day.date === currentDate);
+    if (!selectedDay) {
+      throw new Error(`Arrival sweep did not return selected day ${currentDate} for ${siteRecord.site}.`);
+    }
+
+    arrivalStatuses.push(selectedDay);
+    currentDate = addDays(currentDate, 1);
+  }
+
+  return buildArrivalSweepSummary(arrivalStatuses);
 }
