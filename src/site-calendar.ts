@@ -78,6 +78,12 @@ function formatDate(date: Date): string {
   return `${month}/${day}/${year}`;
 }
 
+function addDays(value: string, days: number): string {
+  const date = parseDate(value);
+  date.setUTCDate(date.getUTCDate() + days);
+  return formatDate(date);
+}
+
 function compareDates(left: string, right: string): number {
   return parseDate(left).getTime() - parseDate(right).getTime();
 }
@@ -266,10 +272,6 @@ function shouldStopPaging(
   mergedDays: SiteCalendarDay[],
   dateTo?: string,
 ): boolean {
-  if (!currentPage.nextPagePath) {
-    return true;
-  }
-
   const lastVisibleDate = mergedDays[mergedDays.length - 1]?.date;
   if (!lastVisibleDate) {
     return true;
@@ -294,6 +296,30 @@ function buildInitialSiteDetailsUrl(siteId: string, dateFrom: string, stayLength
   url.searchParams.set('arvdate', dateFrom);
   url.searchParams.set('lengthOfStay', stayLength);
   return url.toString();
+}
+
+export function resolveNextSiteCalendarUrl(
+  parsedPage: ParsedSiteCalendarPage,
+  mergedDays: SiteCalendarDay[],
+  currentUrl: string,
+  siteId: string,
+  stayLength: string,
+  dateTo?: string,
+): string | null {
+  if (parsedPage.nextPagePath) {
+    return new URL(parsedPage.nextPagePath, currentUrl).toString();
+  }
+
+  if (!dateTo) {
+    return null;
+  }
+
+  const lastVisibleDate = mergedDays[mergedDays.length - 1]?.date;
+  if (!lastVisibleDate || compareDates(lastVisibleDate, dateTo) >= 0) {
+    return null;
+  }
+
+  return buildInitialSiteDetailsUrl(siteId, addDays(lastVisibleDate, 1), stayLength);
 }
 
 export async function resolveRequestedSiteRecords(
@@ -369,11 +395,18 @@ export async function fetchSiteCalendarAvailability(
       break;
     }
 
-    if (!parsedPage.nextPagePath) {
+    const nextUrl = resolveNextSiteCalendarUrl(
+      parsedPage,
+      mergedDays,
+      currentUrl,
+      siteRecord.siteId,
+      stayLength,
+      dateTo,
+    );
+    if (!nextUrl) {
       break;
     }
-
-    currentUrl = new URL(parsedPage.nextPagePath, currentUrl).toString();
+    currentUrl = nextUrl;
   }
 
   const mergedDays = clipDaysToDateRange(mergeSiteCalendarPages(parsedPages), dateFrom, dateTo);

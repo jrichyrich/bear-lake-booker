@@ -15,6 +15,8 @@ Bear Lake Booker is a TypeScript CLI for monitoring Bear Lake State Park availab
 - `src/index.ts`: low-overhead monitoring.
 - `src/race.ts`: hybrid and scheduled capture.
 - `src/release.ts`: release/rehearsal wrapper that freezes targets and starts `race.ts` at an arbitrary launch time.
+- `src/availability.ts`: full-loop HTTP availability search across all loop result pages.
+- `src/site-availability.ts`: per-site calendar crawl with monthly range summaries.
 - `src/auth.ts`: manual login and session file creation/renewal.
 - `src/view-cart.ts`: open shopping carts for one or more accounts after a hold.
 - `src/inspect.ts`: inspect ReserveAmerica traffic when the flow changes.
@@ -79,6 +81,8 @@ If present, `race.ts` sends one end-of-run inventory summary to each configured 
 - View multiple carts: `npm run view-cart -- --accounts lisa@gmail.com,jason@gmail.com`
 - Test session behavior: `npm run test-session`
 - Find an open date: `npm run find-open`
+- Full-loop preferred-site search: `npm run availability -- --dateFrom 07/22/2026 --dateTo 07/27/2026 -l 1 -o BIRCH --siteList preferred-sites`
+- Monthly per-site range report: `npm run site-availability -- --dateFrom 07/01/2026 --dateTo 07/31/2026 -l 1 -o BIRCH --siteList preferred-sites --concurrency 4 --out "camp sites/site-availability-2026-07.md"`
 
 ### Validation
 - Type check: `npx tsc --noEmit`

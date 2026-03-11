@@ -3,8 +3,13 @@ import { loadSiteList } from './site-lists';
 import {
   fetchSiteCalendarAvailability,
   resolveRequestedSiteRecords,
-  type SiteCalendarResult,
 } from './site-calendar';
+import {
+  formatSiteCalendarResult,
+  mapWithConcurrency,
+  writeSiteAvailabilityReport,
+  type SiteAvailabilityReport,
+} from './site-availability-utils';
 
 const { values } = parseArgs({
   options: {
@@ -14,6 +19,8 @@ const { values } = parseArgs({
     loop: { type: 'string', short: 'o', default: 'BIRCH' },
     sites: { type: 'string' },
     siteList: { type: 'string' },
+    concurrency: { type: 'string', default: '4' },
+    out: { type: 'string' },
     json: { type: 'boolean', default: false },
     help: { type: 'boolean', short: 'h' },
   },
@@ -33,6 +40,8 @@ Options:
   -o, --loop <name>            Loop name [default: BIRCH]
   --sites <csv>                Explicit site allowlist override
   --siteList <name-or-path>    Ranked site list from camp sites or a path
+  --concurrency <n>            Number of site crawls to run in parallel [default: 4]
+  --out <path>                 Write a report file (.md, .csv, or .json)
   --json                       Print machine-readable JSON after the console summary
   -h, --help                   Show help
   `);
@@ -51,40 +60,9 @@ const loadedSiteList = explicitSites.length === 0 && typeof values.siteList === 
   : null;
 const requestedSites = explicitSites.length > 0 ? explicitSites : loadedSiteList?.siteIds ?? [];
 const siteListSource = loadedSiteList?.sourcePath;
+const concurrency = Math.max(1, parseInt((values.concurrency as string) ?? '4', 10) || 4);
+const outputPath = typeof values.out === 'string' ? values.out : undefined;
 const printJson = values.json === true;
-
-type SiteAvailabilityReport = {
-  searchedAt: string;
-  loop: string;
-  stayLength: string;
-  seedDate: string;
-  dateTo?: string;
-  requestedSites: string[];
-  missingSites: string[];
-  siteListSource?: string;
-  results: SiteCalendarResult[];
-};
-
-function formatRanges(result: SiteCalendarResult): string {
-  if (result.availableRanges.length === 0) {
-    return 'none';
-  }
-
-  return result.availableRanges
-    .map((range) => `${range.startDate} -> ${range.endDate} (${range.nights} night${range.nights === 1 ? '' : 's'})`)
-    .join('; ');
-}
-
-function printResult(result: SiteCalendarResult): void {
-  console.log(`${result.site} (${result.loop}) | siteId=${result.siteId} | pages=${result.pagesFetched}`);
-  console.log(`  seedDateBookableNow: ${result.seedDateBookableNow ? 'yes' : 'no'}`);
-  console.log(`  maxReservationWindowDate: ${result.maxReservationWindowDate ?? '-'}`);
-  console.log(`  firstVisibleDate: ${result.firstVisibleDate ?? '-'}`);
-  console.log(`  lastVisibleDate: ${result.lastVisibleDate ?? '-'}`);
-  console.log(`  firstAvailableDate: ${result.firstAvailableDate ?? '-'}`);
-  console.log(`  maxConsecutiveNights: ${result.maxConsecutiveNights}`);
-  console.log(`  availableRanges: ${formatRanges(result)}`);
-}
 
 async function main(): Promise<void> {
   if (requestedSites.length === 0) {
@@ -102,24 +80,28 @@ async function main(): Promise<void> {
   if (siteListSource) {
     console.log(`Site list source: ${siteListSource}`);
   }
+  console.log(`Concurrency: ${concurrency}`);
+  if (outputPath) {
+    console.log(`Report file: ${outputPath}`);
+  }
   console.log('');
 
   const resolved = await resolveRequestedSiteRecords(dateFrom, stayLength, loop, requestedSites);
-  const results: SiteCalendarResult[] = [];
+  const results = await mapWithConcurrency(
+    resolved.found,
+    concurrency,
+    async (siteRecord) => fetchSiteCalendarAvailability(siteRecord, dateFrom, stayLength, dateTo),
+  );
 
-  for (const siteRecord of resolved.found) {
-    const result = await fetchSiteCalendarAvailability(siteRecord, dateFrom, stayLength, dateTo);
-    results.push(result);
-    printResult(result);
+  for (const result of results) {
+    for (const line of formatSiteCalendarResult(result)) {
+      console.log(line);
+    }
   }
 
   if (resolved.missing.length > 0) {
     console.log('');
     console.log(`Missing site IDs (${resolved.missing.length}): ${resolved.missing.join(', ')}`);
-  }
-
-  if (!printJson) {
-    return;
   }
 
   const report: SiteAvailabilityReport = {
@@ -133,6 +115,16 @@ async function main(): Promise<void> {
     ...(dateTo ? { dateTo } : {}),
     ...(siteListSource ? { siteListSource } : {}),
   };
+
+  if (outputPath) {
+    const writtenPath = await writeSiteAvailabilityReport(report, outputPath);
+    console.log('');
+    console.log(`Wrote site availability report to ${writtenPath}`);
+  }
+
+  if (!printJson) {
+    return;
+  }
   console.log('');
   console.log(JSON.stringify(report, null, 2));
 }

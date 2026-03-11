@@ -1,4 +1,9 @@
-import { buildAvailableRanges, mergeSiteCalendarPages, parseSiteCalendarPage } from '../src/site-calendar';
+import {
+  buildAvailableRanges,
+  mergeSiteCalendarPages,
+  parseSiteCalendarPage,
+  resolveNextSiteCalendarUrl,
+} from '../src/site-calendar';
 
 describe('site calendar parsing', () => {
   test('parses a site details page with mixed statuses and navigation', () => {
@@ -80,5 +85,31 @@ describe('site calendar parsing', () => {
       { startDate: '05/22/2026', endDate: '05/23/2026', nights: 2 },
       { startDate: '05/25/2026', endDate: '05/27/2026', nights: 3 },
     ]);
+  });
+
+  test('synthesizes the next 2-week seed when the page hides the nextWeek link', () => {
+    const page = parseSiteCalendarPage(`
+      <div id="sitenamearea"><div class="siteTile">Site, Loop: BH13, BIRCH</div></div>
+      <input type="hidden" value="6780" id="siteId">
+      <input type="hidden" value="03/10/2027" id="dateMaxWindow">
+      <div id="calendar" class="items"><div class="br">
+        <div class="td status r" data-auto-id="mday20260715"><a>R</a></div>
+        <div class="td status r" data-auto-id="mday20260716"><a>R</a></div>
+        <div class="td status r" data-auto-id="mday20260728"><a>R</a></div>
+      </div></div>
+    `, 'https://example.com/b');
+
+    const nextUrl = resolveNextSiteCalendarUrl(
+      page,
+      mergeSiteCalendarPages([page]),
+      'https://example.com/b',
+      '6780',
+      '1',
+      '07/31/2026',
+    );
+
+    expect(nextUrl).toContain('siteId=6780');
+    expect(nextUrl).toContain('arvdate=07%2F29%2F2026');
+    expect(nextUrl).toContain('lengthOfStay=1');
   });
 });
