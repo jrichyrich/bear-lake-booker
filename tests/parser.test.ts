@@ -1,4 +1,4 @@
-import { parseSearchResult } from '../src/reserveamerica';
+import { mergeSearchResultPages, parsePageNavigation, parseSearchResult } from '../src/reserveamerica';
 
 describe('ReserveAmerica Parser', () => {
   const targetDate = '07/22/2026';
@@ -81,5 +81,103 @@ describe('ReserveAmerica Parser', () => {
   test('should throw error if calendar is missing', () => {
     const badHtml = '<div>No calendar here</div>';
     expect(() => parseSearchResult(badHtml, targetDate)).toThrow('Calendar section was not found');
+  });
+
+  test('should parse pagination metadata from the list view pager', () => {
+    const html = `
+      <div>
+        <span id="resulttotal_top">60</span>
+        <a id="resultNext_top" href='javascript: executePaging("/campsitePaging.do?contractCode=UT&amp;parkId=343061&amp;startIdx=25")'>Next</a>
+      </div>
+    `;
+
+    const navigation = parsePageNavigation(html);
+
+    expect(navigation.totalSites).toBe(60);
+    expect(navigation.nextPagePath).toBe('/campsitePaging.do?contractCode=UT&parkId=343061&startIdx=25');
+  });
+
+  test('should merge multiple paginated pages and dedupe by site id', () => {
+    const pageOne = `
+      <div>
+        <span id="resulttotal_top">3</span>
+        <a id="resultNext_top" href='javascript: executePaging("/campsitePaging.do?contractCode=UT&amp;parkId=343061&amp;startIdx=25")'>Next</a>
+      </div>
+      <div id="calendar" class="items">
+        <div class="thead">
+          <div class="th calendar">Wed Jul 22</div>
+          <div class="th calendar">Thu Jul 23</div>
+        </div>
+        <div class="br">
+          <div class="siteListLabel"><a href="#">BH09</a></div>
+          <div class="td loopName">BIRCH</div>
+          <div class="td status A">A</div>
+          <div class="td status R">R</div>
+        </div>
+        <div class="br">
+          <div class="siteListLabel"><a href="#">BH10</a></div>
+          <div class="td loopName">BIRCH</div>
+          <div class="td status R">R</div>
+          <div class="td status A">A</div>
+        </div>
+      </div>
+    `;
+
+    const pageTwo = `
+      <div>
+        <span id="resulttotal_top">3</span>
+      </div>
+      <div id="calendar" class="items">
+        <div class="thead">
+          <div class="th calendar">Wed Jul 22</div>
+          <div class="th calendar">Thu Jul 23</div>
+        </div>
+        <div class="br">
+          <div class="siteListLabel"><a href="#">BH11</a></div>
+          <div class="td loopName">BIRCH</div>
+          <div class="td status R">R</div>
+          <div class="td status R">R</div>
+        </div>
+      </div>
+    `;
+
+    const merged = mergeSearchResultPages([pageOne, pageTwo], targetDate);
+
+    expect(merged.sites.map((site) => site.site)).toEqual(['BH09', 'BH10', 'BH11']);
+    expect(merged.arrivalDates).toEqual(['07/22/2026', '07/23/2026']);
+  });
+
+  test('should throw when paginated pages contain duplicate site ids', () => {
+    const pageOne = `
+      <div>
+        <span id="resulttotal_top">2</span>
+        <a id="resultNext_top" href='javascript: executePaging("/campsitePaging.do?contractCode=UT&amp;parkId=343061&amp;startIdx=25")'>Next</a>
+      </div>
+      <div id="calendar" class="items">
+        <div class="thead">
+          <div class="th calendar">Wed Jul 22</div>
+        </div>
+        <div class="br">
+          <div class="siteListLabel"><a href="#">BH09</a></div>
+          <div class="td loopName">BIRCH</div>
+          <div class="td status A">A</div>
+        </div>
+      </div>
+    `;
+    const pageTwo = `
+      <div><span id="resulttotal_top">2</span></div>
+      <div id="calendar" class="items">
+        <div class="thead">
+          <div class="th calendar">Wed Jul 22</div>
+        </div>
+        <div class="br">
+          <div class="siteListLabel"><a href="#">BH09</a></div>
+          <div class="td loopName">BIRCH</div>
+          <div class="td status A">A</div>
+        </div>
+      </div>
+    `;
+
+    expect(() => mergeSearchResultPages([pageOne, pageTwo], targetDate)).toThrow('Duplicate site BH09');
   });
 });

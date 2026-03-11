@@ -69,6 +69,24 @@ export function assertBookingWindow(targetDateStr: string) {
 }
 
 /**
+ * Returns whether a target date is currently inside the booking window.
+ * Booking opens four calendar months prior at 8:00 AM local time.
+ */
+export function isDateBookableNow(targetDateStr: string, now = new Date()): boolean {
+  const [monthStr, dayStr, yearStr] = targetDateStr.split('/');
+  if (!monthStr || !dayStr || !yearStr) {
+    throw new Error(`Invalid date format for ${targetDateStr}. Expected MM/DD/YYYY.`);
+  }
+
+  const month = parseInt(monthStr, 10);
+  const day = parseInt(dayStr, 10);
+  const year = parseInt(yearStr, 10);
+  const bookingOpenAt = new Date(year, month - 5, day, 8, 0, 0, 0);
+
+  return now.getTime() >= bookingOpenAt.getTime();
+}
+
+/**
  * Calculates the maximum allowed booking date (exactly 4 months from today).
  * Returns the date as a formatted string: MM/DD/YYYY
  */
