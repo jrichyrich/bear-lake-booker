@@ -1,4 +1,5 @@
 import {
+  buildArrivalStatusMatrix,
   buildSiteAvailabilityCsvReport,
   buildSiteAvailabilityMarkdownReport,
   mapWithConcurrency,
@@ -11,9 +12,9 @@ function makeReport(): AvailabilitySnapshot {
     generatedAt: '2026-03-11T02:00:00.000Z',
     searchedAt: '2026-03-11T02:00:00.000Z',
     loop: 'BIRCH',
-    stayLength: '1',
-    seedDate: '07/01/2026',
-    dateTo: '07/31/2026',
+    stayLength: '14',
+    seedDate: '07/11/2026',
+    dateTo: '07/14/2026',
     requestedSites: ['BH09', 'BH10'],
     missingSites: ['BH99'],
     siteListSource: '/tmp/preferred-sites.md',
@@ -23,25 +24,70 @@ function makeReport(): AvailabilitySnapshot {
         loop: 'BIRCH',
         siteId: '123',
         detailsUrl: 'https://example.com/site/123',
-        seedDate: '07/01/2026',
+        seedDate: '07/11/2026',
         seedDateBookableNow: true,
         maxReservationWindowDate: '07/31/2026',
         pagesFetched: 2,
-        firstVisibleDate: '07/01/2026',
-        lastVisibleDate: '07/31/2026',
-        firstAvailableDate: '07/04/2026',
+        firstVisibleDate: '07/11/2026',
+        lastVisibleDate: '07/14/2026',
+        firstAvailableDate: '07/11/2026',
         firstFutureAvailableDate: '07/12/2026',
-        maxConsecutiveNights: 5,
-        maxFutureConsecutiveNights: 3,
+        maxConsecutiveNights: 1,
+        maxFutureConsecutiveNights: 2,
         availableRanges: [
-          { startDate: '07/04/2026', endDate: '07/08/2026', nights: 5 },
+          { startDate: '07/11/2026', endDate: '07/11/2026', nights: 1 },
         ],
         futureAvailableRanges: [
-          { startDate: '07/12/2026', endDate: '07/14/2026', nights: 3 },
+          { startDate: '07/12/2026', endDate: '07/13/2026', nights: 2 },
         ],
         days: [
-          { date: '07/04/2026', status: 'A', reservable: true, futureReservable: false },
+          { date: '07/11/2026', status: 'A', reservable: true, futureReservable: false },
           { date: '07/12/2026', status: 'a', reservable: false, futureReservable: true },
+        ],
+        firstAvailableArrivalDate: '07/11/2026',
+        firstFutureAvailableArrivalDate: '07/12/2026',
+        maxConsecutiveAvailableArrivals: 1,
+        maxConsecutiveFutureAvailableArrivals: 2,
+        availableArrivalRanges: [
+          { startDate: '07/11/2026', endDate: '07/11/2026', nights: 1 },
+        ],
+        futureAvailableArrivalRanges: [
+          { startDate: '07/12/2026', endDate: '07/13/2026', nights: 2 },
+        ],
+        arrivalStatuses: [
+          { date: '07/11/2026', status: 'A', reservable: true, futureReservable: false },
+          { date: '07/12/2026', status: 'a', reservable: false, futureReservable: true },
+          { date: '07/13/2026', status: 'a', reservable: false, futureReservable: true },
+          { date: '07/14/2026', status: 'X', reservable: false, futureReservable: false },
+        ],
+      },
+      {
+        site: 'BH10',
+        loop: 'BIRCH',
+        siteId: '124',
+        detailsUrl: 'https://example.com/site/124',
+        seedDate: '07/11/2026',
+        seedDateBookableNow: true,
+        maxReservationWindowDate: '07/31/2026',
+        pagesFetched: 2,
+        firstVisibleDate: '07/11/2026',
+        lastVisibleDate: '07/14/2026',
+        maxConsecutiveNights: 0,
+        maxFutureConsecutiveNights: 0,
+        availableRanges: [],
+        futureAvailableRanges: [],
+        days: [
+          { date: '07/11/2026', status: 'R', reservable: false, futureReservable: false },
+        ],
+        maxConsecutiveAvailableArrivals: 0,
+        maxConsecutiveFutureAvailableArrivals: 0,
+        availableArrivalRanges: [],
+        futureAvailableArrivalRanges: [],
+        arrivalStatuses: [
+          { date: '07/11/2026', status: 'R', reservable: false, futureReservable: false },
+          { date: '07/12/2026', status: 'R', reservable: false, futureReservable: false },
+          { date: '07/13/2026', status: 'X', reservable: false, futureReservable: false },
+          { date: '07/14/2026', status: 'X', reservable: false, futureReservable: false },
         ],
       },
     ],
@@ -53,10 +99,13 @@ describe('site availability utils', () => {
     const markdown = buildSiteAvailabilityMarkdownReport(makeReport());
 
     expect(markdown).toContain('# Site Availability Report');
+    expect(markdown).toContain('## Arrival Status Matrix');
     expect(markdown).toContain('## BH09');
-    expect(markdown).toContain('- Max consecutive nights: 5');
-    expect(markdown).toContain('- Available ranges: 07/04/2026 -> 07/08/2026 (5 nights)');
-    expect(markdown).toContain('- Future-available ranges: 07/12/2026 -> 07/14/2026 (3 nights)');
+    expect(markdown).toContain('- Max consecutive nights: 1');
+    expect(markdown).toContain('07/11 Sa');
+    expect(markdown).toContain('BH09');
+    expect(markdown).toContain('- Available ranges: 07/11/2026 -> 07/11/2026 (1 night)');
+    expect(markdown).toContain('- Future-available ranges: 07/12/2026 -> 07/13/2026 (2 nights)');
     expect(markdown).toContain('- Missing sites: BH99');
   });
 
@@ -65,8 +114,21 @@ describe('site availability utils', () => {
 
     expect(csv).toContain('"site","loop","siteId"');
     expect(csv).toContain('"BH09","BIRCH","123"');
-    expect(csv).toContain('"07/04/2026 -> 07/08/2026 (5 nights)"');
-    expect(csv).toContain('"07/12/2026 -> 07/14/2026 (3 nights)"');
+    expect(csv).toContain('"07/11/2026 -> 07/11/2026 (1 night)"');
+    expect(csv).toContain('"07/12/2026 -> 07/13/2026 (2 nights)"');
+  });
+
+  test('builds an arrival-status matrix from arrival sweep results', () => {
+    const matrix = buildArrivalStatusMatrix(makeReport());
+
+    expect(matrix).toContain('Site');
+    expect(matrix).toContain('07/11 Sa');
+    expect(matrix).toContain('07/12 Su');
+    expect(matrix).toContain('BH09');
+    expect(matrix).toContain('BH10');
+    expect(matrix).toContain('A');
+    expect(matrix).toContain('a');
+    expect(matrix).toContain('X');
   });
 
   test('maps values with bounded concurrency and preserves order', async () => {

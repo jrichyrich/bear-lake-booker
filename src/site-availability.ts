@@ -11,6 +11,7 @@ import {
   resolveRequestedSiteRecords,
 } from './site-calendar';
 import {
+  buildArrivalStatusMatrix,
   formatSiteCalendarResult,
   mapWithConcurrency,
   resolveArrivalSweepEndDate,
@@ -28,6 +29,7 @@ const { values } = parseArgs({
     concurrency: { type: 'string', default: '4' },
     out: { type: 'string' },
     arrivalSweep: { type: 'boolean', default: false },
+    arrivalMatrix: { type: 'boolean', default: false },
     json: { type: 'boolean', default: false },
     help: { type: 'boolean', short: 'h' },
   },
@@ -50,6 +52,7 @@ Options:
   --concurrency <n>            Number of site crawls to run in parallel [default: 4]
   --out <path>                 Write an additional report file (.md, .csv, or .json)
   --arrivalSweep               Probe each arrival date in the window for this stay length
+  --arrivalMatrix              Print a site-by-site arrival-status matrix (requires --arrivalSweep)
   --json                       Print machine-readable JSON after the console summary
   -h, --help                   Show help
   `);
@@ -71,11 +74,15 @@ const siteListSource = loadedSiteList?.sourcePath;
 const concurrency = Math.max(1, parseInt((values.concurrency as string) ?? '4', 10) || 4);
 const outputPath = typeof values.out === 'string' ? values.out : undefined;
 const arrivalSweep = values.arrivalSweep === true;
+const arrivalMatrix = values.arrivalMatrix === true;
 const printJson = values.json === true;
 
 async function main(): Promise<void> {
   if (requestedSites.length === 0) {
     throw new Error('Site availability requires --siteList or --sites so the crawl knows which sites to inspect.');
+  }
+  if (arrivalMatrix && !arrivalSweep) {
+    throw new Error('Site availability requires --arrivalSweep when using --arrivalMatrix.');
   }
 
   console.log('--- Bear Lake Booker: Site Availability Calendar ---');
@@ -142,6 +149,17 @@ async function main(): Promise<void> {
   const snapshotPath = writeAvailabilitySnapshot(report);
   console.log('');
   console.log(`Wrote availability snapshot to ${snapshotPath}`);
+
+  if (arrivalMatrix) {
+    const matrix = buildArrivalStatusMatrix(report);
+    console.log('');
+    if (!matrix) {
+      console.log('Arrival status matrix unavailable: no arrival sweep data was collected.');
+    } else {
+      console.log('--- Arrival Status Matrix ---');
+      console.log(matrix);
+    }
+  }
 
   if (outputPath) {
     const writtenPath = await writeSiteAvailabilityReport(report, outputPath);

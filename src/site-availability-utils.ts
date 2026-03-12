@@ -4,6 +4,8 @@ import { mkdir } from 'fs/promises';
 import type { SiteCalendarResult } from './site-calendar';
 import type { AvailabilitySnapshot } from './availability-snapshots';
 
+const WEEKDAY_LABELS = ['Su', 'M', 'Tu', 'W', 'Th', 'F', 'Sa'] as const;
+
 function formatRanges(result: SiteCalendarResult): string {
   if (result.availableRanges.length === 0) {
     return 'none';
@@ -32,6 +34,53 @@ function formatArrivalRanges(ranges: SiteCalendarResult['availableArrivalRanges'
   return ranges
     .map((range) => `${range.startDate} -> ${range.endDate} (${range.nights} arrival date${range.nights === 1 ? '' : 's'})`)
     .join('; ');
+}
+
+function parseSlashDate(value: string): Date {
+  const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(value.trim());
+  if (!match) {
+    throw new Error(`Invalid date "${value}". Expected MM/DD/YYYY.`);
+  }
+
+  const month = Number(match[1]);
+  const day = Number(match[2]);
+  const year = Number(match[3]);
+  return new Date(Date.UTC(year, month - 1, day));
+}
+
+function formatSlashDate(date: Date): string {
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(date.getUTCDate()).padStart(2, '0');
+  const year = date.getUTCFullYear();
+  return `${month}/${day}/${year}`;
+}
+
+function buildDateRange(dateFrom: string, dateTo: string): string[] {
+  const start = parseSlashDate(dateFrom);
+  const end = parseSlashDate(dateTo);
+  const dates: string[] = [];
+
+  for (let current = new Date(start); current.getTime() <= end.getTime(); current.setUTCDate(current.getUTCDate() + 1)) {
+    dates.push(formatSlashDate(current));
+  }
+
+  return dates;
+}
+
+function formatMatrixHeaderCell(value: string): string {
+  const date = parseSlashDate(value);
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(date.getUTCDate()).padStart(2, '0');
+  const weekday = WEEKDAY_LABELS[date.getUTCDay()] ?? '?';
+  return `${month}/${day} ${weekday}`;
+}
+
+function padMatrixCell(value: string, width: number): string {
+  const trimmed = value.trim();
+  const totalPadding = Math.max(0, width - trimmed.length);
+  const leftPadding = Math.floor(totalPadding / 2);
+  const rightPadding = totalPadding - leftPadding;
+  return `${' '.repeat(leftPadding)}${trimmed}${' '.repeat(rightPadding)}`;
 }
 
 export function resolveArrivalSweepEndDate(dateFrom: string, dateTo: string | undefined, arrivalSweep: boolean): string | undefined {
@@ -67,6 +116,43 @@ export function formatSiteCalendarResult(result: SiteCalendarResult): string[] {
   }
 
   return lines;
+}
+
+export function buildArrivalStatusMatrix(report: AvailabilitySnapshot): string | null {
+  const dateTo = report.dateTo ?? report.seedDate;
+  const dates = buildDateRange(report.seedDate, dateTo);
+  const rows = report.results
+    .filter((result) => result.arrivalStatuses && result.arrivalStatuses.length > 0);
+
+  if (rows.length === 0) {
+    return null;
+  }
+
+  const siteWidth = Math.max(4, ...rows.map((result) => result.site.length));
+  const dayHeaders = dates.map(formatMatrixHeaderCell);
+  const dayWidth = Math.max(...dayHeaders.map((header) => header.length), 3);
+
+  const header = [
+    'Site'.padEnd(siteWidth),
+    ...dayHeaders.map((headerCell) => padMatrixCell(headerCell, dayWidth)),
+  ].join(' | ');
+
+  const separator = [
+    '-'.repeat(siteWidth),
+    ...dayHeaders.map(() => '-'.repeat(dayWidth)),
+  ].join('-+-');
+
+  const lines = [header, separator];
+
+  for (const result of rows) {
+    const arrivalStatusByDate = new Map(
+      (result.arrivalStatuses ?? []).map((day) => [day.date, day.status]),
+    );
+    const cells = dates.map((date) => padMatrixCell(arrivalStatusByDate.get(date) ?? '-', dayWidth));
+    lines.push([result.site.padEnd(siteWidth), ...cells].join(' | '));
+  }
+
+  return lines.join('\n');
 }
 
 export async function mapWithConcurrency<T, R>(
@@ -116,7 +202,21 @@ export function buildSiteAvailabilityMarkdownReport(report: AvailabilitySnapshot
     lines.push(`- Missing sites: ${report.missingSites.join(', ')}`);
   }
 
+  const arrivalMatrix = buildArrivalStatusMatrix(report);
+  if (arrivalMatrix) {
+    lines.push('- Arrival sweep: enabled');
+  }
+
   lines.push('');
+
+  if (arrivalMatrix) {
+    lines.push('## Arrival Status Matrix');
+    lines.push('');
+    lines.push('```text');
+    lines.push(arrivalMatrix);
+    lines.push('```');
+    lines.push('');
+  }
 
   for (const result of report.results) {
     lines.push(`## ${result.site}`);
