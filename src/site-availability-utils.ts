@@ -155,6 +155,43 @@ export function buildArrivalStatusMatrix(report: AvailabilitySnapshot): string |
   return lines.join('\n');
 }
 
+export function buildStayWindowStatusMatrix(report: AvailabilitySnapshot): string | null {
+  const dateTo = report.dateTo ?? report.seedDate;
+  const dates = buildDateRange(report.seedDate, dateTo);
+  const rows = report.results
+    .filter((result) => result.days && result.days.length > 0);
+
+  if (rows.length === 0) {
+    return null;
+  }
+
+  const siteWidth = Math.max(4, ...rows.map((result) => result.site.length));
+  const dayHeaders = dates.map(formatMatrixHeaderCell);
+  const dayWidth = Math.max(...dayHeaders.map((header) => header.length), 3);
+
+  const header = [
+    'Site'.padEnd(siteWidth),
+    ...dayHeaders.map((headerCell) => padMatrixCell(headerCell, dayWidth)),
+  ].join(' | ');
+
+  const separator = [
+    '-'.repeat(siteWidth),
+    ...dayHeaders.map(() => '-'.repeat(dayWidth)),
+  ].join('-+-');
+
+  const lines = [header, separator];
+
+  for (const result of rows) {
+    const dayStatusByDate = new Map(
+      result.days.map((day) => [day.date, day.status]),
+    );
+    const cells = dates.map((date) => padMatrixCell(dayStatusByDate.get(date) ?? '-', dayWidth));
+    lines.push([result.site.padEnd(siteWidth), ...cells].join(' | '));
+  }
+
+  return lines.join('\n');
+}
+
 export async function mapWithConcurrency<T, R>(
   values: readonly T[],
   concurrency: number,

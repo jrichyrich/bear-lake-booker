@@ -65,7 +65,7 @@ If present, `race.ts` sends one end-of-run inventory summary to each configured 
 ### Guided Workflow
 - Show the simplified flow and loaded defaults: `npm run workflow -- help`
 - Morning scout for a 14-night target date: `npm run workflow -- scout --date 07/11/2026 --length 14`
-- Morning scout with the arrival matrix: `npm run workflow -- scout --date 07/11/2026 --length 14 --showMatrix`
+- Morning scout with the website-style stay-window matrix: `npm run workflow -- scout --date 07/11/2026 --length 14 --showMatrix`
 - 8 AM booking run from the latest matching scout snapshot: `npm run workflow -- book --date 07/11/2026 --length 14`
 
 Optional defaults can live in `bear-lake-workflow.json`. Start from [`bear-lake-workflow.example.json`](/Users/jasricha/Documents/Github_Personal/bear-lake-booker/bear-lake-workflow.example.json).

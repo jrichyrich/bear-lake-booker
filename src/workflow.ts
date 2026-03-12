@@ -2,7 +2,7 @@ import { parseArgs } from 'util';
 import { spawnSync } from 'child_process';
 import { classifyArrivalSnapshot, writeArrivalShortlistJson, writeArrivalShortlistMarkdown } from './arrival-shortlists';
 import { loadLatestAvailabilitySnapshot, resolveLatestAvailabilitySnapshotPath } from './availability-snapshots';
-import { buildArrivalStatusMatrix } from './site-availability-utils';
+import { buildArrivalStatusMatrix, buildStayWindowStatusMatrix } from './site-availability-utils';
 import { loadSiteList } from './site-lists';
 import { loadWorkflowConfig, WORKFLOW_CONFIG_FILENAME } from './workflow-config';
 
@@ -61,7 +61,7 @@ Commands:
   book     Use the latest matching scout snapshot to build a site list and start the 8 AM booking flow
 
 Useful options:
-  --showMatrix   Print the arrival-status matrix in the guided scout summary
+  --showMatrix   Print the website-style stay-window matrix in the guided scout summary
   --dryRun       When used with "book", open the booking flow without trying to hold a site
 
 Optional config:
@@ -195,13 +195,19 @@ async function main(): Promise<void> {
     console.log(`Exact-fit sites for ${date}: ${shortlist.exactFitSites.map((site) => site.site).join(', ') || '-'}`);
     console.log(`Future-only sites for ${date}: ${shortlist.futureOnlySites.map((site) => site.site).join(', ') || '-'}`);
     if (showMatrix) {
-      const matrix = buildArrivalStatusMatrix(snapshot);
+      const stayWindowMatrix = buildStayWindowStatusMatrix(snapshot);
+      const arrivalMatrix = buildArrivalStatusMatrix(snapshot);
       console.log('');
-      if (!matrix) {
-        console.log('Arrival status matrix unavailable: no arrival sweep data was collected.');
+      if (!stayWindowMatrix) {
+        console.log('Stay-window matrix unavailable: no per-day site calendar data was collected.');
       } else {
-        console.log('--- Scout Arrival Status Matrix ---');
-        console.log(matrix);
+        console.log('--- Scout Stay-Window Status Matrix ---');
+        console.log(stayWindowMatrix);
+      }
+      if (arrivalMatrix) {
+        console.log('');
+        console.log('--- Scout Arrival-Date Status Matrix ---');
+        console.log(arrivalMatrix);
       }
     }
     console.log('');

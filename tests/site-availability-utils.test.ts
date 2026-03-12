@@ -1,5 +1,6 @@
 import {
   buildArrivalStatusMatrix,
+  buildStayWindowStatusMatrix,
   buildSiteAvailabilityCsvReport,
   buildSiteAvailabilityMarkdownReport,
   mapWithConcurrency,
@@ -129,6 +130,19 @@ describe('site availability utils', () => {
     expect(matrix).toContain('A');
     expect(matrix).toContain('a');
     expect(matrix).toContain('X');
+  });
+
+  test('builds a stay-window matrix from raw site calendar rows', () => {
+    const matrix = buildStayWindowStatusMatrix(makeReport());
+
+    expect(matrix).toContain('Site');
+    expect(matrix).toContain('07/11 Sa');
+    expect(matrix).toContain('07/12 Su');
+    expect(matrix).toContain('BH09');
+    expect(matrix).toContain('BH10');
+    expect(matrix).toContain('A');
+    expect(matrix).toContain('a');
+    expect(matrix).toContain('R');
   });
 
   test('maps values with bounded concurrency and preserves order', async () => {
