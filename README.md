@@ -59,9 +59,16 @@ Optional iMessage recipients live in `.sessions/notification-recipients.json`:
 }
 ```
 
-If present, `race.ts` sends one end-of-run inventory summary to each configured recipient in the selected profile when at least one hold is secured. Rehearsals should use `--notificationProfile test`; live release runs should use `--notificationProfile production`.
+If present, `race.ts` sends one end-of-run inventory summary to each configured recipient in the selected profile when at least one hold is secured. Rehearsals should use `--notificationProfile test`; live booking runs should use `--notificationProfile production`.
 
 ## Common Commands
+### Guided Workflow
+- Show the simplified flow and loaded defaults: `npm run workflow -- help`
+- Morning scout for a 14-night target date: `npm run workflow -- scout --date 07/11/2026 --length 14`
+- 8 AM booking run from the latest matching scout snapshot: `npm run workflow -- book --date 07/11/2026 --length 14`
+
+Optional defaults can live in `bear-lake-workflow.json`. Start from [`bear-lake-workflow.example.json`](/Users/jasricha/Documents/Github_Personal/bear-lake-booker/bear-lake-workflow.example.json).
+
 ### Monitoring
 - Standard check: `npm start -- -d 08/15/2026 -l 3 -o BIRCH`
 - Continuous monitor: `npm start -- -d 08/15/2026 -l 3 -o BIRCH -i 5`
@@ -71,9 +78,9 @@ If present, `race.ts` sends one end-of-run inventory summary to each configured 
 - Hybrid live hold attempt: `npm run race -- -d 08/15/2026 -l 3 -o BIRCH -m 5 -c 4 --book`
 - Scheduled race with targeted sites: `npm run race -- -d 08/15/2026 -l 3 -o BIRCH -c 10 -t 07:59:59 --sites BH09,BH11 --book --notificationProfile production`
 - Scheduled race from a ranked site list: `npm run race -- -d 08/15/2026 -l 3 -o BIRCH -c 10 -t 07:59:59 --siteList preferred-sites --book --notificationProfile production`
-- Release/rehearsal wrapper: `npm run release -- --launchTime 07:59:59 -d 08/15/2026 -l 3 -o BIRCH -c 6 --book --accounts lisa@gmail.com,jason@gmail.com --headed --checkoutAuthMode manual --notificationProfile test`
-- Release wrapper from a ranked site list: `npm run release -- --launchTime 07:59:59 -d 08/15/2026 -l 3 -o BIRCH -c 6 --book --accounts lisa@gmail.com,jason@gmail.com --siteList preferred-sites --headed --checkoutAuthMode manual --notificationProfile test`
-- Release-day projection wrapper: `npm run release -- --launchTime 07:59:59 -d 07/15/2026 -l 14 -o BIRCH -c 6 --book --accounts lisa@gmail.com,jason@gmail.com --siteList preferred-sites --projectionMode window-edge --headed --checkoutAuthMode manual --notificationProfile test`
+- Booking/rehearsal wrapper: `npm run book -- --launchTime 07:59:59 -d 08/15/2026 -l 3 -o BIRCH -c 6 --book --accounts lisa@gmail.com,jason@gmail.com --headed --checkoutAuthMode manual --notificationProfile test`
+- Booking wrapper from a ranked site list: `npm run book -- --launchTime 07:59:59 -d 08/15/2026 -l 3 -o BIRCH -c 6 --book --accounts lisa@gmail.com,jason@gmail.com --siteList preferred-sites --headed --checkoutAuthMode manual --notificationProfile test`
+- Booking-day projection wrapper: `npm run book -- --launchTime 07:59:59 -d 07/15/2026 -l 14 -o BIRCH -c 6 --book --accounts lisa@gmail.com,jason@gmail.com --siteList preferred-sites --projectionMode window-edge --headed --checkoutAuthMode manual --notificationProfile test`
 - Multi-account run: `npm run race -- -d 08/15/2026 -l 3 -o BIRCH -c 4 --book --accounts lisa@gmail.com,jason@gmail.com`
 - Multi-hold mode: `npm run race -- -d 08/15/2026 -l 3 -o BIRCH -c 4 --book --bookingMode multi --maxHolds 2 --accounts lisa@gmail.com,jason@gmail.com`
 
@@ -106,7 +113,7 @@ If present, `race.ts` sends one end-of-run inventory summary to each configured 
 - `--checkoutAuthMode auto|manual`: choose how checkout re-auth is handled.
 - `--notificationProfile test|production`: choose which iMessage recipient profile gets the final inventory summary.
 
-`src/release.ts` adds wrapper-only scheduling flags:
+`src/release.ts` powers `npm run book` and adds wrapper-only scheduling flags:
 
 - `--launchTime <HH:MM:SS>`: required launch time for today.
 - `--scoutLeadMinutes <mins>`: when to freeze the scout target set before launch.
@@ -130,7 +137,7 @@ The automation boundary is still intentional: Bear Lake Booker can reach the sho
 3. If a hold lands, open the cart with `npm run view-cart`.
 4. Complete checkout manually before the hold expires.
 
-For `npm run release`, the wrapper also requires empty carts before launch, scouts or freezes the target site list, and then starts `race.ts` with the resolved `--time` and `--sites`.
+For `npm run book`, the wrapper also requires empty carts before launch, scouts or freezes the target site list, and then starts `race.ts` with the resolved `--time` and `--sites`.
 
 ## Camp Site Lists
 Ranked site lists live under [`camp sites`](/Users/jasricha/Documents/Github_Personal/bear-lake-booker/camp%20sites).

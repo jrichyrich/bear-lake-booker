@@ -1,0 +1,15 @@
+{
+  "loop": "BIRCH",
+  "siteList": "preferred-sites",
+  "scoutWindowDays": 14,
+  "scoutConcurrency": 4,
+  "bookingConcurrency": 6,
+  "launchTime": "07:59:59",
+  "notificationProfile": "test",
+  "headed": true,
+  "checkoutAuthMode": "manual",
+  "accounts": [
+    "lisa@gmail.com",
+    "jason@gmail.com"
+  ]
+}

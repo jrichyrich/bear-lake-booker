@@ -69,10 +69,10 @@ const { values } = parseArgs({
 
 if (values.help || !values.launchTime) {
   console.log(`
-Bear Lake Booker - Release / Rehearsal Wrapper
+Bear Lake Booker - Booking / Rehearsal Wrapper
 
 Usage:
-  npm run release -- --launchTime HH:MM:SS [race options]
+  npm run book -- --launchTime HH:MM:SS [race options]
 
 Required:
   --launchTime <HH:MM:SS>      Target launch time for today
@@ -95,6 +95,9 @@ Common options:
   --warmupLeadSeconds <secs>   Seconds before launch to start race warmup [default: 45]
 
 All remaining options are passed through to "npm run race".
+
+Compatibility:
+  "npm run release" still works as an alias for "npm run book".
   `);
   process.exit(values.help ? 0 : 1);
 }

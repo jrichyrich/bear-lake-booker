@@ -12,6 +12,8 @@
     "view-cart": "tsx src/view-cart.ts",
     "flow": "tsx src/flow.ts",
     "release": "tsx src/release.ts",
+    "book": "tsx src/release.ts",
+    "workflow": "tsx src/workflow.ts",
     "availability": "tsx src/availability.ts",
     "site-availability": "tsx src/site-availability.ts",
     "checkout": "tsx src/view-cart.ts --accounts lisarichards1984,jrichards1981",
