@@ -108,7 +108,11 @@ export function writeAvailabilitySnapshot(snapshot: AvailabilitySnapshot, output
 export function loadAvailabilitySnapshot(snapshotPath: string): AvailabilitySnapshot {
   const resolvedPath = path.resolve(snapshotPath);
   const content = fs.readFileSync(resolvedPath, 'utf-8');
-  return normalizeSnapshot(JSON.parse(content) as AvailabilitySnapshot);
+  const parsed = JSON.parse(content) as Partial<AvailabilitySnapshot>;
+  if (!parsed.loop || !parsed.stayLength || !parsed.seedDate || !Array.isArray(parsed.results)) {
+    throw new Error(`File is not a valid availability snapshot: ${resolvedPath}`);
+  }
+  return normalizeSnapshot(parsed as AvailabilitySnapshot);
 }
 
 function isDateInSnapshot(snapshot: AvailabilitySnapshot, targetDate: string): boolean {
@@ -143,7 +147,14 @@ function findLatestAvailabilitySnapshot(options: {
     .map((entry) => path.join(snapshotsDir, entry));
 
   const matches = snapshotPaths
-    .map((snapshotPath) => ({ snapshotPath, snapshot: loadAvailabilitySnapshot(snapshotPath) }))
+    .map((snapshotPath) => {
+      try {
+        return { snapshotPath, snapshot: loadAvailabilitySnapshot(snapshotPath) };
+      } catch {
+        return null;
+      }
+    })
+    .filter((entry): entry is { snapshotPath: string; snapshot: AvailabilitySnapshot } => entry !== null)
     .filter(({ snapshot }) => {
       if (options.loop && snapshot.loop.toUpperCase() !== options.loop.toUpperCase()) {
         return false;

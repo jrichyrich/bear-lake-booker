@@ -2,6 +2,7 @@ import { parseArgs } from 'util';
 import { spawnSync } from 'child_process';
 import { classifyArrivalSnapshot, writeArrivalShortlistJson, writeArrivalShortlistMarkdown } from './arrival-shortlists';
 import { loadLatestAvailabilitySnapshot, resolveLatestAvailabilitySnapshotPath } from './availability-snapshots';
+import { buildArrivalStatusMatrix } from './site-availability-utils';
 import { loadSiteList } from './site-lists';
 import { loadWorkflowConfig, WORKFLOW_CONFIG_FILENAME } from './workflow-config';
 
@@ -56,8 +57,12 @@ Usage:
   npm run workflow -- book --date MM/DD/YYYY --length <nights>
 
 Commands:
-  scout    Run the pre-launch arrival sweep, print the arrival matrix, and save a shortlist
+  scout    Run the pre-launch arrival sweep and save a shortlist
   book     Use the latest matching scout snapshot to build a site list and start the 8 AM booking flow
+
+Useful options:
+  --showMatrix   Print the arrival-status matrix in the guided scout summary
+  --dryRun       When used with "book", open the booking flow without trying to hold a site
 
 Optional config:
   ${WORKFLOW_CONFIG_FILENAME}
@@ -75,6 +80,7 @@ Current defaults:
 
 Examples:
   npm run workflow -- scout --date 07/11/2026 --length 14
+  npm run workflow -- scout --date 07/11/2026 --length 14 --showMatrix
   npm run workflow -- book --date 07/11/2026 --length 14
   npm run workflow -- book --date 07/11/2026 --length 14 --dryRun
 `);
@@ -95,6 +101,7 @@ const { values, positionals } = parseArgs({
     headed: { type: 'boolean', default: false },
     noHeaded: { type: 'boolean', default: false },
     checkoutAuthMode: { type: 'string' },
+    showMatrix: { type: 'boolean', default: false },
     dryRun: { type: 'boolean', default: false },
     help: { type: 'boolean', short: 'h' },
   },
@@ -120,6 +127,7 @@ async function main(): Promise<void> {
   const accounts = typeof values.accounts === 'string'
     ? values.accounts.split(',').map((value) => value.trim()).filter(Boolean)
     : config.accounts;
+  const showMatrix = values.showMatrix === true;
 
   if (values.help || command === 'help') {
     printHelp(configPath, {
@@ -151,7 +159,6 @@ async function main(): Promise<void> {
       '--siteList', siteList,
       '--concurrency', String(scoutConcurrency),
       '--arrivalSweep',
-      '--arrivalMatrix',
     ]);
 
     const snapshotPath = resolveLatestAvailabilitySnapshotPath({
@@ -187,6 +194,16 @@ async function main(): Promise<void> {
     console.log(`Arrival shortlist Markdown: ${shortlistMarkdownPath}`);
     console.log(`Exact-fit sites for ${date}: ${shortlist.exactFitSites.map((site) => site.site).join(', ') || '-'}`);
     console.log(`Future-only sites for ${date}: ${shortlist.futureOnlySites.map((site) => site.site).join(', ') || '-'}`);
+    if (showMatrix) {
+      const matrix = buildArrivalStatusMatrix(snapshot);
+      console.log('');
+      if (!matrix) {
+        console.log('Arrival status matrix unavailable: no arrival sweep data was collected.');
+      } else {
+        console.log('--- Scout Arrival Status Matrix ---');
+        console.log(matrix);
+      }
+    }
     console.log('');
     console.log(`Next step: npm run workflow -- book --date ${date} --length ${stayLength}`);
     return;
