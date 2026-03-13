@@ -3,6 +3,7 @@
   "siteList": "preferred-sites",
   "scoutWindowDays": 14,
   "scoutConcurrency": 4,
+  "arrivalSweepConcurrency": 3,
   "bookingConcurrency": 6,
   "launchTime": "07:59:59",
   "notificationProfile": "test",

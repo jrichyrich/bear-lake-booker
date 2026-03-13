@@ -1,6 +1,9 @@
 import {
   buildArrivalShortlistMarkdown,
   classifyArrivalSnapshot,
+  listBlockedTargets,
+  listExactFitTargets,
+  listFutureOnlyTargets,
 } from '../src/arrival-shortlists';
 import type { AvailabilitySnapshot } from '../src/availability-snapshots';
 
@@ -29,7 +32,10 @@ function makeSnapshot(): AvailabilitySnapshot {
         maxFutureConsecutiveNights: 0,
         availableRanges: [],
         futureAvailableRanges: [],
-        days: [],
+        days: [
+          { date: '07/11/2026', status: 'A', reservable: true, futureReservable: false },
+          { date: '07/12/2026', status: 'a', reservable: false, futureReservable: true },
+        ],
         arrivalStatuses: [
           { date: '07/11/2026', status: 'A', reservable: true, futureReservable: false },
         ],
@@ -46,7 +52,10 @@ function makeSnapshot(): AvailabilitySnapshot {
         maxFutureConsecutiveNights: 0,
         availableRanges: [],
         futureAvailableRanges: [],
-        days: [],
+        days: [
+          { date: '07/11/2026', status: 'a', reservable: false, futureReservable: true },
+          { date: '07/12/2026', status: 'a', reservable: false, futureReservable: true },
+        ],
         arrivalStatuses: [
           { date: '07/11/2026', status: 'a', reservable: false, futureReservable: true },
         ],
@@ -63,7 +72,10 @@ function makeSnapshot(): AvailabilitySnapshot {
         maxFutureConsecutiveNights: 0,
         availableRanges: [],
         futureAvailableRanges: [],
-        days: [],
+        days: [
+          { date: '07/11/2026', status: 'X', reservable: false, futureReservable: false },
+          { date: '07/12/2026', status: 'X', reservable: false, futureReservable: false },
+        ],
         arrivalStatuses: [
           { date: '07/11/2026', status: 'X', reservable: false, futureReservable: false },
         ],
@@ -76,10 +88,11 @@ describe('arrival shortlists', () => {
   test('classifies exact-fit, future-only, and blocked sites from arrival statuses', () => {
     const shortlist = classifyArrivalSnapshot(makeSnapshot(), '07/11/2026', '/tmp/snapshot.json');
 
-    expect(shortlist.exactFitSites.map((site) => site.site)).toEqual(['BH09']);
-    expect(shortlist.futureOnlySites.map((site) => site.site)).toEqual(['BH10']);
-    expect(shortlist.blockedSites.map((site) => site.site)).toEqual(['BH11']);
+    expect(listExactFitTargets(shortlist).map((site) => site.site)).toEqual(['BH09']);
+    expect(listFutureOnlyTargets(shortlist).map((site) => site.site)).toEqual(['BH10']);
+    expect(listBlockedTargets(shortlist).map((site) => site.site)).toEqual(['BH11']);
     expect(shortlist.sourceSnapshotPath).toBe('/tmp/snapshot.json');
+    expect(listExactFitTargets(shortlist)[0]?.stayWindowStatuses.slice(0, 2)).toEqual(['A', 'a']);
   });
 
   test('builds a readable markdown summary', () => {

@@ -8,6 +8,7 @@ export type WorkflowConfig = {
   siteList: string;
   scoutWindowDays: number;
   scoutConcurrency: number;
+  arrivalSweepConcurrency: number;
   bookingConcurrency: number;
   launchTime: string;
   notificationProfile: 'test' | 'production';
@@ -26,6 +27,7 @@ const DEFAULT_WORKFLOW_CONFIG: WorkflowConfig = {
   siteList: 'preferred-sites',
   scoutWindowDays: 14,
   scoutConcurrency: 4,
+  arrivalSweepConcurrency: 3,
   bookingConcurrency: 6,
   launchTime: '07:59:59',
   notificationProfile: 'test',
@@ -90,6 +92,7 @@ export function loadWorkflowConfig(cwd = process.cwd()): LoadedWorkflowConfig {
     siteList: normalizeString(raw.siteList, DEFAULT_WORKFLOW_CONFIG.siteList),
     scoutWindowDays: normalizePositiveInt(raw.scoutWindowDays, DEFAULT_WORKFLOW_CONFIG.scoutWindowDays),
     scoutConcurrency: normalizePositiveInt(raw.scoutConcurrency, DEFAULT_WORKFLOW_CONFIG.scoutConcurrency),
+    arrivalSweepConcurrency: normalizePositiveInt(raw.arrivalSweepConcurrency, DEFAULT_WORKFLOW_CONFIG.arrivalSweepConcurrency),
     bookingConcurrency: normalizePositiveInt(
       raw.bookingConcurrency ?? raw.releaseConcurrency,
       DEFAULT_WORKFLOW_CONFIG.bookingConcurrency,

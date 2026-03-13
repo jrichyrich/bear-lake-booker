@@ -1,6 +1,7 @@
 import * as cheerio from 'cheerio';
 import { PARK_URL } from './config';
 import { searchAvailability, type SiteAvailability } from './reserveamerica';
+import { mapWithConcurrency } from './site-availability-utils';
 import { isDateBookableNow } from './timer-utils';
 
 const USER_AGENT = 'bear-lake-booker/1.0';
@@ -514,6 +515,7 @@ export async function fetchSiteArrivalSweep(
   dateFrom: string,
   stayLength: string,
   dateTo: string,
+  arrivalSweepConcurrency = 3,
 ): Promise<Pick<
   SiteCalendarResult,
   | 'firstAvailableArrivalDate'
@@ -524,19 +526,27 @@ export async function fetchSiteArrivalSweep(
   | 'futureAvailableArrivalRanges'
   | 'arrivalStatuses'
 >> {
-  const arrivalStatuses: SiteCalendarDay[] = [];
+  const arrivalDates: string[] = [];
   let currentDate = dateFrom;
 
   while (compareDates(currentDate, dateTo) <= 0) {
-    const singleDateResult = await fetchSiteCalendarAvailability(siteRecord, currentDate, stayLength, currentDate);
-    const selectedDay = singleDateResult.days.find((day) => day.date === currentDate);
-    if (!selectedDay) {
-      throw new Error(`Arrival sweep did not return selected day ${currentDate} for ${siteRecord.site}.`);
-    }
-
-    arrivalStatuses.push(selectedDay);
+    arrivalDates.push(currentDate);
     currentDate = addDays(currentDate, 1);
   }
+
+  const arrivalStatuses = await mapWithConcurrency(
+    arrivalDates,
+    arrivalSweepConcurrency,
+    async (arrivalDate) => {
+      const singleDateResult = await fetchSiteCalendarAvailability(siteRecord, arrivalDate, stayLength, arrivalDate);
+      const selectedDay = singleDateResult.days.find((day) => day.date === arrivalDate);
+      if (!selectedDay) {
+        throw new Error(`Arrival sweep did not return selected day ${arrivalDate} for ${siteRecord.site}.`);
+      }
+
+      return selectedDay;
+    },
+  );
 
   return buildArrivalSweepSummary(arrivalStatuses);
 }

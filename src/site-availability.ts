@@ -1,7 +1,6 @@
 import { parseArgs } from 'util';
 import { loadSiteList } from './site-lists';
 import {
-  buildAvailabilitySnapshotPath,
   writeAvailabilitySnapshot,
   type AvailabilitySnapshot,
 } from './availability-snapshots';
@@ -18,24 +17,29 @@ import {
   writeSiteAvailabilityReport,
 } from './site-availability-utils';
 
-const { values } = parseArgs({
-  options: {
-    dateFrom: { type: 'string' },
-    dateTo: { type: 'string' },
-    length: { type: 'string', short: 'l', default: '1' },
-    loop: { type: 'string', short: 'o', default: 'BIRCH' },
-    sites: { type: 'string' },
-    siteList: { type: 'string' },
-    concurrency: { type: 'string', default: '4' },
-    out: { type: 'string' },
-    arrivalSweep: { type: 'boolean', default: false },
-    arrivalMatrix: { type: 'boolean', default: false },
-    json: { type: 'boolean', default: false },
-    help: { type: 'boolean', short: 'h' },
-  },
-});
+export type SiteAvailabilityRunOptions = {
+  dateFrom: string;
+  dateTo?: string;
+  stayLength?: string;
+  loop?: string;
+  explicitSites?: string[];
+  siteListNameOrPath?: string;
+  concurrency?: number;
+  outputPath?: string;
+  arrivalSweep?: boolean;
+  arrivalMatrix?: boolean;
+  printJson?: boolean;
+  arrivalSweepConcurrency?: number;
+};
 
-if (values.help || !values.dateFrom) {
+export type SiteAvailabilityRunResult = {
+  report: AvailabilitySnapshot;
+  snapshotPath: string;
+  outputPath?: string;
+  arrivalMatrix?: string | null;
+};
+
+function printHelp(): void {
   console.log(`
 Bear Lake Booker - Per-Site Availability Calendar
 
@@ -50,34 +54,33 @@ Options:
   --sites <csv>                Explicit site allowlist override
   --siteList <name-or-path>    Ranked site list from camp sites or a path
   --concurrency <n>            Number of site crawls to run in parallel [default: 4]
+  --arrivalSweepConcurrency <n>  Parallel arrival-date probes per site when using --arrivalSweep [default: 3]
   --out <path>                 Write an additional report file (.md, .csv, or .json)
   --arrivalSweep               Probe each arrival date in the window for this stay length
   --arrivalMatrix              Print a site-by-site arrival-status matrix (requires --arrivalSweep)
   --json                       Print machine-readable JSON after the console summary
   -h, --help                   Show help
   `);
-  process.exit(values.help ? 0 : 1);
 }
 
-const dateFrom = values.dateFrom as string;
-const dateTo = typeof values.dateTo === 'string' ? values.dateTo : undefined;
-const stayLength = values.length as string;
-const loop = values.loop as string;
-const explicitSites = typeof values.sites === 'string'
-  ? values.sites.split(',').map((value) => value.trim().toUpperCase()).filter(Boolean)
-  : [];
-const loadedSiteList = explicitSites.length === 0 && typeof values.siteList === 'string'
-  ? loadSiteList(values.siteList)
-  : null;
-const requestedSites = explicitSites.length > 0 ? explicitSites : loadedSiteList?.siteIds ?? [];
-const siteListSource = loadedSiteList?.sourcePath;
-const concurrency = Math.max(1, parseInt((values.concurrency as string) ?? '4', 10) || 4);
-const outputPath = typeof values.out === 'string' ? values.out : undefined;
-const arrivalSweep = values.arrivalSweep === true;
-const arrivalMatrix = values.arrivalMatrix === true;
-const printJson = values.json === true;
+export async function runSiteAvailability(options: SiteAvailabilityRunOptions): Promise<SiteAvailabilityRunResult> {
+  const dateFrom = options.dateFrom;
+  const dateTo = options.dateTo;
+  const stayLength = options.stayLength ?? '1';
+  const loop = options.loop ?? 'BIRCH';
+  const explicitSites = (options.explicitSites ?? []).map((value) => value.trim().toUpperCase()).filter(Boolean);
+  const loadedSiteList = explicitSites.length === 0 && options.siteListNameOrPath
+    ? loadSiteList(options.siteListNameOrPath)
+    : null;
+  const requestedSites = explicitSites.length > 0 ? explicitSites : loadedSiteList?.siteIds ?? [];
+  const siteListSource = loadedSiteList?.sourcePath;
+  const concurrency = Math.max(1, Math.floor(options.concurrency ?? 4));
+  const outputPath = options.outputPath;
+  const arrivalSweep = options.arrivalSweep === true;
+  const arrivalMatrix = options.arrivalMatrix === true;
+  const printJson = options.printJson === true;
+  const arrivalSweepConcurrency = Math.max(1, Math.floor(options.arrivalSweepConcurrency ?? 3));
 
-async function main(): Promise<void> {
   if (requestedSites.length === 0) {
     throw new Error('Site availability requires --siteList or --sites so the crawl knows which sites to inspect.');
   }
@@ -99,6 +102,7 @@ async function main(): Promise<void> {
   console.log(`Concurrency: ${concurrency}`);
   if (arrivalSweep) {
     console.log('Arrival sweep: enabled');
+    console.log(`Arrival sweep concurrency: ${arrivalSweepConcurrency}`);
   }
   console.log('');
 
@@ -113,7 +117,13 @@ async function main(): Promise<void> {
         return result;
       }
 
-      const sweep = await fetchSiteArrivalSweep(siteRecord, dateFrom, stayLength, arrivalSweepEndDate);
+      const sweep = await fetchSiteArrivalSweep(
+        siteRecord,
+        dateFrom,
+        stayLength,
+        arrivalSweepEndDate,
+        arrivalSweepConcurrency,
+      );
       return {
         ...result,
         ...sweep,
@@ -150,8 +160,10 @@ async function main(): Promise<void> {
   console.log('');
   console.log(`Wrote availability snapshot to ${snapshotPath}`);
 
+  let arrivalMatrixOutput: string | null | undefined;
   if (arrivalMatrix) {
     const matrix = buildArrivalStatusMatrix(report);
+    arrivalMatrixOutput = matrix;
     console.log('');
     if (!matrix) {
       console.log('Arrival status matrix unavailable: no arrival sweep data was collected.');
@@ -166,14 +178,82 @@ async function main(): Promise<void> {
     console.log(`Wrote site availability report to ${writtenPath}`);
   }
 
-  if (!printJson) {
-    return;
+  if (printJson) {
+    console.log('');
+    console.log(JSON.stringify(report, null, 2));
   }
-  console.log('');
-  console.log(JSON.stringify(report, null, 2));
+
+  const result: SiteAvailabilityRunResult = {
+    report,
+    snapshotPath,
+  };
+  if (outputPath) {
+    result.outputPath = outputPath;
+  }
+  if (arrivalSweep) {
+    result.arrivalMatrix = arrivalMatrixOutput ?? null;
+  }
+  return result;
 }
 
-void main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
-});
+export async function runSiteAvailabilityCliArgs(args = process.argv.slice(2)): Promise<number> {
+  const { values } = parseArgs({
+    args,
+    options: {
+      dateFrom: { type: 'string' },
+      dateTo: { type: 'string' },
+      length: { type: 'string', short: 'l', default: '1' },
+      loop: { type: 'string', short: 'o', default: 'BIRCH' },
+      sites: { type: 'string' },
+      siteList: { type: 'string' },
+      concurrency: { type: 'string', default: '4' },
+      arrivalSweepConcurrency: { type: 'string', default: '3' },
+      out: { type: 'string' },
+      arrivalSweep: { type: 'boolean', default: false },
+      arrivalMatrix: { type: 'boolean', default: false },
+      json: { type: 'boolean', default: false },
+      help: { type: 'boolean', short: 'h' },
+    },
+  });
+
+  if (values.help || !values.dateFrom) {
+    printHelp();
+    return values.help ? 0 : 1;
+  }
+
+  try {
+    const options: SiteAvailabilityRunOptions = {
+      dateFrom: values.dateFrom as string,
+      stayLength: values.length as string,
+      loop: values.loop as string,
+      explicitSites: typeof values.sites === 'string'
+        ? values.sites.split(',').map((value) => value.trim().toUpperCase()).filter(Boolean)
+        : [],
+      concurrency: Math.max(1, parseInt((values.concurrency as string) ?? '4', 10) || 4),
+      arrivalSweepConcurrency: Math.max(1, parseInt((values.arrivalSweepConcurrency as string) ?? '3', 10) || 3),
+      arrivalSweep: values.arrivalSweep === true,
+      arrivalMatrix: values.arrivalMatrix === true,
+      printJson: values.json === true,
+    };
+    if (typeof values.dateTo === 'string') {
+      options.dateTo = values.dateTo;
+    }
+    if (typeof values.siteList === 'string') {
+      options.siteListNameOrPath = values.siteList;
+    }
+    if (typeof values.out === 'string') {
+      options.outputPath = values.out;
+    }
+    await runSiteAvailability(options);
+    return 0;
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    return 1;
+  }
+}
+
+if (require.main === module) {
+  void runSiteAvailabilityCliArgs().then((code) => {
+    process.exitCode = code;
+  });
+}

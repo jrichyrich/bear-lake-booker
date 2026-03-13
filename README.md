@@ -86,7 +86,8 @@ If present, `race.ts` sends one end-of-run inventory summary to each configured 
 - Preflight two accounts in parallel: `bear-lake prep --date 07/11/2026 --length 14 --accounts lisa@gmail.com,jason@gmail.com --parallelAccounts`
 - Validate the scout-to-book handoff with a near-term dry run: `bear-lake validate --date 07/11/2026 --length 14`
 - Rehearse the direct race flow from the latest exact-fit scout snapshot: `bear-lake rehearse --date 07/11/2026 --length 14`
-- 8 AM booking run from the latest matching scout snapshot: `bear-lake book --date 07/11/2026 --length 14`
+- 8 AM booking run from the latest matching scout shortlist: `bear-lake book --date 07/11/2026 --length 14`
+- Guided booking defaults to session-only preflight. Add `--cartPreflight` if you want the stricter empty-cart check before launch.
 
 If you do not want to `npm link`, the same commands work as `npm run cli -- <command> ...`.
 
@@ -146,7 +147,7 @@ Optional defaults can live in `bear-lake-workflow.json`. Start from [`bear-lake-
 
 In `--projectionMode window-edge`, the wrapper:
 
-1. validates sessions and empty carts
+1. validates sessions, and optionally carts when cart preflight is enabled
 2. waits until the projection time
 3. crawls the exact target arrival date and stay length for the allowed sites
 4. writes a dated shortlist JSON/Markdown under [`camp sites/availability`](/Users/jasricha/Documents/Github_Personal/bear-lake-booker/camp%20sites/availability)
@@ -160,7 +161,7 @@ The automation boundary is still intentional: Bear Lake Booker can reach the sho
 3. If a hold lands, open the cart with `npm run view-cart`.
 4. Complete checkout manually before the hold expires.
 
-For `npm run book`, the wrapper also requires empty carts before launch, scouts or freezes the target site list, and then starts `race.ts` with the resolved `--time` and `--sites`.
+For `npm run book`, the guided workflow validates sessions before launch, reads the latest scout shortlist as the source of truth, and then starts `race.ts` with the resolved `--time` and `--sites`. Add `--cartPreflight` if you want the stricter empty-cart check before launch.
 
 ## Camp Site Lists
 Ranked site lists live under [`camp sites`](/Users/jasricha/Documents/Github_Personal/bear-lake-booker/camp%20sites).
@@ -173,7 +174,12 @@ The operational shortlist is [`preferred-sites.md`](/Users/jasricha/Documents/Gi
 
 The runtime derives the final allowlist as `Top choices + Backups - Exclude`. If both `--sites` and `--siteList` are provided, `--sites` still wins.
 
-Availability snapshots live under [`camp sites/availability`](/Users/jasricha/Documents/Github_Personal/bear-lake-booker/camp%20sites/availability). `site-availability` writes canonical JSON snapshots there by default, and Markdown/CSV reports should be treated as derived views of those snapshots.
+Availability data is now split into:
+
+- snapshots: [`camp sites/availability/snapshots`](/Users/jasricha/Documents/Github_Personal/bear-lake-booker/camp%20sites/availability/snapshots)
+- reports and shortlists: [`camp sites/availability/reports`](/Users/jasricha/Documents/Github_Personal/bear-lake-booker/camp%20sites/availability/reports)
+
+`site-availability` writes canonical JSON snapshots into the snapshots directory by default. Guided scout writes shortlist JSON/Markdown into the reports directory. Legacy files in [`camp sites/availability`](/Users/jasricha/Documents/Github_Personal/bear-lake-booker/camp%20sites/availability) are still read as fallback during migration.
 
 ## Roadmap
 The main unfinished work is tracked in:

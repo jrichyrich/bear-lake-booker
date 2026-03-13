@@ -5,6 +5,8 @@ import {
   buildAvailabilitySnapshotPath,
   buildSnapshotSiteStrengths,
   findMatchingAvailabilitySnapshots,
+  getAvailabilityReportsDir,
+  getAvailabilitySnapshotsDir,
   loadAvailabilitySnapshot,
   loadLatestAvailabilitySnapshot,
   rankRequestedSitesForCapture,
@@ -94,10 +96,15 @@ function makeSnapshot(overrides: Partial<AvailabilitySnapshot> = {}): Availabili
 }
 
 describe('availability snapshots', () => {
-  test('builds default paths under camp sites/availability', () => {
+  test('builds default paths under the snapshots directory', () => {
     const snapshotPath = buildAvailabilitySnapshotPath(makeSnapshot());
-    expect(snapshotPath).toContain(path.join('camp sites', 'availability'));
+    expect(snapshotPath).toContain(path.join('camp sites', 'availability', 'snapshots'));
     expect(snapshotPath).toContain('birch-2026-06-01-2026-06-30');
+  });
+
+  test('exposes split snapshot/report directories', () => {
+    expect(getAvailabilitySnapshotsDir()).toContain(path.join('camp sites', 'availability', 'snapshots'));
+    expect(getAvailabilityReportsDir()).toContain(path.join('camp sites', 'availability', 'reports'));
   });
 
   test('writes and reloads a canonical snapshot with per-day data', () => {
@@ -161,6 +168,27 @@ describe('availability snapshots', () => {
       '2026-03-11T03:00:00.000Z',
       '2026-03-10T03:00:00.000Z',
     ]);
+  });
+
+  test('ignores derived report json files when scanning a snapshot directory', () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bear-lake-snapshots-'));
+    writeAvailabilitySnapshot(makeSnapshot(), path.join(tempDir, 'snapshot.json'));
+    fs.writeFileSync(
+      path.join(tempDir, 'arrival-shortlist.json'),
+      JSON.stringify({ generatedAt: '2026-03-12T00:00:00.000Z', targets: [] }, null, 2),
+      'utf-8',
+    );
+
+    const matches = findMatchingAvailabilitySnapshots({
+      loop: 'BIRCH',
+      stayLength: '1',
+      targetDate: '06/15/2026',
+      siteListSource: '/repo/camp sites/preferred-sites.md',
+      snapshotsDir: tempDir,
+    });
+
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.snapshot.loop).toBe('BIRCH');
   });
 
   test('ignores snapshots with the wrong stay length or snapshot kind', () => {

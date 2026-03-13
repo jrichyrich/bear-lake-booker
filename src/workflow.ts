@@ -1,12 +1,23 @@
 import { parseArgs } from 'util';
 import { spawnSync } from 'child_process';
-import { classifyArrivalSnapshot, writeArrivalShortlistJson, writeArrivalShortlistMarkdown } from './arrival-shortlists';
 import {
-  findMatchingAvailabilitySnapshots,
+  classifyArrivalSnapshot,
+  findMatchingArrivalShortlists,
+  listExactFitTargets,
+  listFutureOnlyTargets,
+  loadLatestArrivalShortlist,
+  writeArrivalShortlistJson,
+  writeArrivalShortlistMarkdown,
+  type ArrivalShortlist,
+  type BookingTarget,
+} from './arrival-shortlists';
+import { buildGuidedBookingPlan } from './booking-plan';
+import {
   loadLatestAvailabilitySnapshot,
   resolveLatestAvailabilitySnapshotPath,
-  type AvailabilitySnapshot,
 } from './availability-snapshots';
+import { runReleaseCliArgs } from './release';
+import { runSiteAvailability } from './site-availability';
 import { buildArrivalStatusMatrix, buildStayWindowStatusMatrix } from './site-availability-utils';
 import { loadSiteList } from './site-lists';
 import { loadWorkflowConfig, WORKFLOW_CONFIG_FILENAME } from './workflow-config';
@@ -54,32 +65,30 @@ function runCli(entryFile: string, args: string[]): void {
   }
 }
 
-function findLatestExactFitSnapshot(input: {
+function findLatestExactFitShortlist(input: {
   loop: string;
   stayLength: string;
   targetDate: string;
   siteListSource: string;
 }): {
-  snapshotPath: string;
-  snapshot: AvailabilitySnapshot;
-  exactFitSites: string[];
+  shortlistPath: string;
+  shortlist: ArrivalShortlist;
+  exactFitTargets: BookingTarget[];
 } | null {
-  const matches = findMatchingAvailabilitySnapshots({
+  const matches = findMatchingArrivalShortlists({
     loop: input.loop,
     stayLength: input.stayLength,
     targetDate: input.targetDate,
     siteListSource: input.siteListSource,
-    snapshotKind: 'site-calendar',
   });
 
-  for (const { snapshotPath, snapshot } of matches) {
-    const shortlist = classifyArrivalSnapshot(snapshot, input.targetDate, snapshotPath);
-    const exactFitSites = shortlist.exactFitSites.map((site) => site.site);
-    if (exactFitSites.length > 0) {
+  for (const { shortlistPath, shortlist } of matches) {
+    const exactFitTargets = listExactFitTargets(shortlist);
+    if (exactFitTargets.length > 0) {
       return {
-        snapshotPath,
-        snapshot,
-        exactFitSites,
+        shortlistPath,
+        shortlist,
+        exactFitTargets,
       };
     }
   }
@@ -94,6 +103,7 @@ function printHelp(configPath: string | null, defaults: {
   launchTime: string;
   accounts: string[];
   bookingConcurrency: number;
+  arrivalSweepConcurrency: number;
 }): void {
   console.log(`
 Bear Lake Booker - Guided Workflow
@@ -115,15 +125,15 @@ Local without install:
 
 Commands:
   scout    Run the pre-launch arrival sweep and save a shortlist
-  prep     Validate session/cart and freeze the exact-fit sites from the latest scout snapshot
+  prep     Validate sessions and freeze the exact-fit sites from the latest scout shortlist
   validate Prove the scout shortlist feeds booking by running a near-term dry-run launch
   rehearse Run the direct race dry run against the latest scout snapshot that still has exact-fit sites
-  book     Use the latest matching scout snapshot to build a site list and start the 8 AM booking flow
+  book     Use the latest matching scout shortlist to arm the 8 AM booking flow
 
 Useful options:
   --showMatrix   Print the website-style stay-window matrix in the guided scout summary
   --parallelAccounts  When used with "prep", validate account sessions/carts concurrently
-  --skipCartPreflight  When used with "prep", "validate", or "book", skip early cart preflight
+  --cartPreflight  When used with "prep", "validate", or "book", require cart preflight in addition to session checks
   --dryRun       When used with "book", open the booking flow without trying to hold a site
 
 Optional config:
@@ -136,6 +146,7 @@ Current defaults:
   loop=${defaults.loop}
   siteList=${defaults.siteList}
   scoutWindowDays=${defaults.scoutWindowDays}
+  arrivalSweepConcurrency=${defaults.arrivalSweepConcurrency}
   launchTime=${defaults.launchTime}
   bookingConcurrency=${defaults.bookingConcurrency}
   accounts=${defaults.accounts.join(', ') || '(default account)'}
@@ -152,37 +163,44 @@ Examples:
 `);
 }
 
-const { values, positionals } = parseArgs({
-  options: {
-    date: { type: 'string', short: 'd' },
-    length: { type: 'string', short: 'l' },
-    loop: { type: 'string', short: 'o' },
-    siteList: { type: 'string' },
-    windowDays: { type: 'string' },
-    scoutConcurrency: { type: 'string' },
-    concurrency: { type: 'string', short: 'c' },
-    launchTime: { type: 'string' },
-    accounts: { type: 'string' },
-    notificationProfile: { type: 'string' },
-    headed: { type: 'boolean', default: false },
-    noHeaded: { type: 'boolean', default: false },
-    checkoutAuthMode: { type: 'string' },
-    showMatrix: { type: 'boolean', default: false },
-    parallelAccounts: { type: 'boolean', default: false },
-    skipCartPreflight: { type: 'boolean', default: false },
-    dryRun: { type: 'boolean', default: false },
-    help: { type: 'boolean', short: 'h' },
-  },
-  allowPositionals: true,
-});
+function parseWorkflowCliArgs(args: string[]) {
+  return parseArgs({
+    args,
+    options: {
+      date: { type: 'string', short: 'd' },
+      length: { type: 'string', short: 'l' },
+      loop: { type: 'string', short: 'o' },
+      siteList: { type: 'string' },
+      windowDays: { type: 'string' },
+      scoutConcurrency: { type: 'string' },
+      arrivalSweepConcurrency: { type: 'string' },
+      concurrency: { type: 'string', short: 'c' },
+      launchTime: { type: 'string' },
+      accounts: { type: 'string' },
+      notificationProfile: { type: 'string' },
+      headed: { type: 'boolean', default: false },
+      noHeaded: { type: 'boolean', default: false },
+      checkoutAuthMode: { type: 'string' },
+      showMatrix: { type: 'boolean', default: false },
+      parallelAccounts: { type: 'boolean', default: false },
+      cartPreflight: { type: 'boolean', default: false },
+      skipCartPreflight: { type: 'boolean', default: false },
+      dryRun: { type: 'boolean', default: false },
+      help: { type: 'boolean', short: 'h' },
+    },
+    allowPositionals: true,
+  });
+}
 
-async function main(): Promise<void> {
+export async function runWorkflowCliArgs(args = process.argv.slice(2)): Promise<number> {
+  const { values, positionals } = parseWorkflowCliArgs(args);
   const command = positionals[0]?.trim().toLowerCase() ?? 'help';
   const { config, configPath } = loadWorkflowConfig();
   const loop = typeof values.loop === 'string' ? values.loop.trim() : config.loop;
   const siteList = typeof values.siteList === 'string' ? values.siteList.trim() : config.siteList;
   const scoutWindowDays = Math.max(1, parseInt((values.windowDays as string | undefined) ?? '', 10) || config.scoutWindowDays);
   const scoutConcurrency = Math.max(1, parseInt((values.scoutConcurrency as string | undefined) ?? '', 10) || config.scoutConcurrency);
+  const arrivalSweepConcurrency = Math.max(1, parseInt((values.arrivalSweepConcurrency as string | undefined) ?? '', 10) || config.arrivalSweepConcurrency);
   const bookingConcurrency = Math.max(1, parseInt((values.concurrency as string | undefined) ?? '', 10) || config.bookingConcurrency);
   const launchTime = typeof values.launchTime === 'string' ? values.launchTime.trim() : config.launchTime;
   const notificationProfile = values.notificationProfile === 'production' ? 'production' : config.notificationProfile;
@@ -197,18 +215,20 @@ async function main(): Promise<void> {
     : config.accounts;
   const showMatrix = values.showMatrix === true;
   const parallelAccounts = values.parallelAccounts === true;
-  const skipCartPreflight = values.skipCartPreflight === true;
+  const useCartPreflight = values.cartPreflight === true && values.skipCartPreflight !== true;
+  const skipCartPreflight = !useCartPreflight;
 
   if (values.help || command === 'help') {
     printHelp(configPath, {
       loop,
       siteList,
       scoutWindowDays,
+      arrivalSweepConcurrency,
       launchTime,
       accounts,
       bookingConcurrency,
     });
-    return;
+    return 0;
   }
 
   const date = typeof values.date === 'string' ? values.date.trim() : '';
@@ -221,15 +241,16 @@ async function main(): Promise<void> {
 
   if (command === 'scout') {
     const endDate = addDays(date, scoutWindowDays - 1);
-    runCli('src/site-availability.ts', [
-      '--dateFrom', date,
-      '--dateTo', endDate,
-      '-l', stayLength,
-      '-o', loop,
-      '--siteList', siteList,
-      '--concurrency', String(scoutConcurrency),
-      '--arrivalSweep',
-    ]);
+    await runSiteAvailability({
+      dateFrom: date,
+      dateTo: endDate,
+      stayLength,
+      loop,
+      siteListNameOrPath: siteList,
+      concurrency: scoutConcurrency,
+      arrivalSweep: true,
+      arrivalSweepConcurrency,
+    });
 
     const snapshotPath = resolveLatestAvailabilitySnapshotPath({
       loop,
@@ -262,8 +283,8 @@ async function main(): Promise<void> {
     console.log(`Source snapshot: ${snapshotPath}`);
     console.log(`Arrival shortlist JSON: ${shortlistJsonPath}`);
     console.log(`Arrival shortlist Markdown: ${shortlistMarkdownPath}`);
-    console.log(`Exact-fit sites for ${date}: ${shortlist.exactFitSites.map((site) => site.site).join(', ') || '-'}`);
-    console.log(`Future-only sites for ${date}: ${shortlist.futureOnlySites.map((site) => site.site).join(', ') || '-'}`);
+    console.log(`Exact-fit sites for ${date}: ${listExactFitTargets(shortlist).map((site) => site.site).join(', ') || '-'}`);
+    console.log(`Future-only sites for ${date}: ${listFutureOnlyTargets(shortlist).map((site) => site.site).join(', ') || '-'}`);
     if (showMatrix) {
       const stayWindowMatrix = buildStayWindowStatusMatrix(snapshot);
       const arrivalMatrix = buildArrivalStatusMatrix(snapshot);
@@ -282,11 +303,41 @@ async function main(): Promise<void> {
     }
     console.log('');
     console.log(`Next step: bear-lake book --date ${date} --length ${stayLength}`);
-    return;
+    return 0;
   }
 
   if (command === 'prep' || command === 'validate' || command === 'rehearse' || command === 'book' || command === 'release') {
-    const snapshotPath = resolveLatestAvailabilitySnapshotPath({
+    const latestShortlistRecord = command === 'rehearse'
+      ? findLatestExactFitShortlist({
+          loop,
+          stayLength,
+          targetDate: date,
+          siteListSource: loadedSiteList.sourcePath,
+        })
+      : loadLatestArrivalShortlist({
+          loop,
+          stayLength,
+          targetDate: date,
+          siteListSource: loadedSiteList.sourcePath,
+        });
+    if (!latestShortlistRecord) {
+      throw new Error(`No matching scout shortlist found for ${date} (${stayLength} nights). Run "bear-lake scout --date ${date} --length ${stayLength}" first.`);
+    }
+
+    const shortlistPath = latestShortlistRecord.shortlistPath;
+    const shortlist = latestShortlistRecord.shortlist;
+    const exactFitTargets = command === 'rehearse'
+      ? (latestShortlistRecord as {
+          shortlistPath: string;
+          shortlist: ArrivalShortlist;
+          exactFitTargets: BookingTarget[];
+        }).exactFitTargets
+      : buildGuidedBookingPlan(shortlistPath, shortlist).exactTargets;
+    if (exactFitTargets.length === 0) {
+      throw new Error(`No exact-fit sites were found for ${date} in the latest scout shortlist. Review ${shortlistPath} before launching booking.`);
+    }
+
+    const snapshotPath = shortlist.sourceSnapshotPath ?? resolveLatestAvailabilitySnapshotPath({
       loop,
       stayLength,
       targetDate: date,
@@ -294,35 +345,9 @@ async function main(): Promise<void> {
       snapshotKind: 'site-calendar',
     });
     if (!snapshotPath) {
-      throw new Error(`No matching scout snapshot found for ${date} (${stayLength} nights). Run "bear-lake scout --date ${date} --length ${stayLength}" first.`);
+      throw new Error(`Unable to resolve the source scout snapshot for ${date} (${stayLength} nights).`);
     }
-
-    const snapshot = loadLatestAvailabilitySnapshot({
-      loop,
-      stayLength,
-      targetDate: date,
-      siteListSource: loadedSiteList.sourcePath,
-      snapshotKind: 'site-calendar',
-    });
-    if (!snapshot) {
-      throw new Error(`Unable to load the latest scout snapshot for ${date} (${stayLength} nights).`);
-    }
-
-    const exactFitSnapshot = command === 'rehearse'
-      ? findLatestExactFitSnapshot({
-          loop,
-          stayLength,
-          targetDate: date,
-          siteListSource: loadedSiteList.sourcePath,
-        })
-      : null;
-    const effectiveSnapshotPath = exactFitSnapshot?.snapshotPath ?? snapshotPath;
-    const effectiveSnapshot = exactFitSnapshot?.snapshot ?? snapshot;
-    const shortlist = classifyArrivalSnapshot(effectiveSnapshot, date, effectiveSnapshotPath);
-    const exactFitSites = exactFitSnapshot?.exactFitSites ?? shortlist.exactFitSites.map((site) => site.site);
-    if (exactFitSites.length === 0) {
-      throw new Error(`No exact-fit sites were found for ${date} in the latest scout snapshot. Review ${effectiveSnapshotPath} before launching booking.`);
-    }
+    const exactFitSites = exactFitTargets.map((site: BookingTarget) => site.site);
 
     const effectiveLaunchTime = command === 'validate' || command === 'rehearse'
       ? buildValidationLaunchTime()
@@ -336,7 +361,7 @@ async function main(): Promise<void> {
           '-c', String(bookingConcurrency),
           '--sites', exactFitSites.join(','),
           '--notificationProfile', notificationProfile,
-          '--availabilitySnapshot', effectiveSnapshotPath,
+          '--availabilitySnapshot', snapshotPath,
           ...(accounts.length > 0 ? ['--accounts', accounts.join(',')] : []),
           '--headed',
           ...(checkoutAuthMode ? ['--checkoutAuthMode', checkoutAuthMode] : []),
@@ -353,7 +378,7 @@ async function main(): Promise<void> {
           '-c', String(bookingConcurrency),
           '--sites', exactFitSites.join(','),
           '--notificationProfile', notificationProfile,
-          '--availabilitySnapshot', effectiveSnapshotPath,
+          '--availabilitySnapshot', snapshotPath,
           ...(accounts.length > 0 ? ['--accounts', accounts.join(',')] : []),
           ...(headed ? ['--headed'] : []),
           ...(checkoutAuthMode ? ['--checkoutAuthMode', checkoutAuthMode] : []),
@@ -374,11 +399,15 @@ async function main(): Promise<void> {
         : command === 'rehearse'
           ? '--- Guided Rehearsal Plan ---'
         : '--- Guided Booking Plan ---');
-    console.log(`Using scout snapshot: ${effectiveSnapshotPath}`);
+    console.log(`Using scout shortlist: ${shortlistPath}`);
+    console.log(`Using scout snapshot: ${snapshotPath}`);
     console.log(`Target sites: ${exactFitSites.join(', ')}`);
+    for (const target of exactFitTargets) {
+      console.log(`  - ${target.site} (siteId=${target.siteId}) -> ${target.detailsUrl}`);
+    }
     if (command === 'prep') {
       console.log(`Intended launch time: ${launchTime}`);
-      console.log(`Mode: ${skipCartPreflight ? 'session preflight only' : 'session/cart preflight only'} (${parallelAccounts ? 'parallel accounts' : 'sequential accounts'})`);
+      console.log(`Mode: ${skipCartPreflight ? 'session preflight only' : 'session and cart preflight'} (${parallelAccounts ? 'parallel accounts' : 'sequential accounts'})`);
     } else if (command === 'validate') {
       console.log(`Validation launch time: ${effectiveLaunchTime}`);
       console.log(`Mode: dry-run handoff validation${skipCartPreflight ? ' (cart preflight skipped)' : ''}`);
@@ -391,14 +420,25 @@ async function main(): Promise<void> {
     }
     console.log('');
 
-    runCli(command === 'rehearse' ? 'src/race.ts' : 'src/release.ts', bookingArgs);
-    return;
+    if (command === 'rehearse') {
+      runCli('src/race.ts', bookingArgs);
+    } else {
+      const exitCode = await runReleaseCliArgs(bookingArgs);
+      if (exitCode !== 0) {
+        return exitCode;
+      }
+    }
+    return 0;
   }
 
   throw new Error(`Unknown workflow command "${command}". Use "bear-lake help".`);
 }
 
-void main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
-});
+if (require.main === module) {
+  void runWorkflowCliArgs().then((code) => {
+    process.exitCode = code;
+  }).catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  });
+}

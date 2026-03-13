@@ -3,7 +3,10 @@ import * as path from 'path';
 import type { SiteCalendarResult } from './site-calendar';
 import type { LoadedSiteList } from './site-lists';
 
-const SNAPSHOTS_DIR = path.resolve(process.cwd(), 'camp sites', 'availability');
+const AVAILABILITY_BASE_DIR = path.resolve(process.cwd(), 'camp sites', 'availability');
+const SNAPSHOTS_DIR = path.join(AVAILABILITY_BASE_DIR, 'snapshots');
+const REPORTS_DIR = path.join(AVAILABILITY_BASE_DIR, 'reports');
+const LEGACY_AVAILABILITY_DIR = AVAILABILITY_BASE_DIR;
 
 export type AvailabilitySnapshot = {
   generatedAt: string;
@@ -86,6 +89,20 @@ export function getAvailabilitySnapshotsDir(): string {
   return SNAPSHOTS_DIR;
 }
 
+export function getAvailabilityReportsDir(): string {
+  return REPORTS_DIR;
+}
+
+function getAvailabilitySearchDirs(customDir?: string): string[] {
+  if (customDir) {
+    return [path.resolve(customDir)];
+  }
+
+  return [SNAPSHOTS_DIR, LEGACY_AVAILABILITY_DIR]
+    .map((dir) => path.resolve(dir))
+    .filter((dir, index, values) => values.indexOf(dir) === index);
+}
+
 export function buildAvailabilitySnapshotPath(snapshot: AvailabilitySnapshot): string {
   const loop = snapshot.loop.trim().toLowerCase();
   const start = slashDateForFilename(snapshot.seedDate);
@@ -146,16 +163,11 @@ export function findMatchingAvailabilitySnapshots(options: {
   snapshotKind?: AvailabilitySnapshot['snapshotKind'];
   snapshotsDir?: string;
 }): Array<{ snapshotPath: string; snapshot: AvailabilitySnapshot }> {
-  const snapshotsDir = options.snapshotsDir
-    ? path.resolve(options.snapshotsDir)
-    : getAvailabilitySnapshotsDir();
-  if (!fs.existsSync(snapshotsDir)) {
-    return [];
-  }
-
-  const snapshotPaths = fs.readdirSync(snapshotsDir)
-    .filter((entry) => entry.endsWith('.json'))
-    .map((entry) => path.join(snapshotsDir, entry));
+  const snapshotPaths = getAvailabilitySearchDirs(options.snapshotsDir)
+    .filter((snapshotsDir) => fs.existsSync(snapshotsDir))
+    .flatMap((snapshotsDir) => fs.readdirSync(snapshotsDir)
+      .filter((entry) => entry.endsWith('.json'))
+      .map((entry) => path.join(snapshotsDir, entry)));
 
   return snapshotPaths
     .map((snapshotPath) => {

@@ -39,38 +39,29 @@ import {
   type ProjectionShortlist,
 } from './projection-shortlists';
 
-const args = process.argv.slice(2);
+let launchTime = '';
+let prepOnly = false;
+let parallelAccounts = false;
+let skipCartPreflight = false;
+let targetDate = '07/22/2026';
+let stayLength = '6';
+let loop = 'BIRCH';
+let concurrency = 10;
+let scoutLeadMinutes = 2;
+let warmupLeadSeconds = 45;
+let projectionLeadMinutes = 10;
+let explicitSites: string[] = [];
+let siteListSpec = '';
+let explicitAvailabilitySnapshot = '';
+let requestedAccounts: Array<string | undefined> = [undefined];
+let headed = false;
+let notificationProfile: 'test' | 'production' = 'test';
+let projectionMode = '';
+let projectionPolicy: 'exact-fit-only' | 'allow-partial' = 'exact-fit-only';
+let allowProjectionOutsideWindowEdge = false;
+let checkoutAuthMode: 'auto' | 'manual' = 'manual';
 
-const { values } = parseArgs({
-  args,
-  options: {
-    launchTime: { type: 'string' },
-    prepOnly: { type: 'boolean', default: false },
-    parallelAccounts: { type: 'boolean', default: false },
-    skipCartPreflight: { type: 'boolean', default: false },
-    date: { type: 'string', short: 'd', default: '07/22/2026' },
-    length: { type: 'string', short: 'l', default: '6' },
-    loop: { type: 'string', short: 'o', default: 'BIRCH' },
-    concurrency: { type: 'string', short: 'c', default: '10' },
-    accounts: { type: 'string' },
-    sites: { type: 'string' },
-    siteList: { type: 'string' },
-    availabilitySnapshot: { type: 'string' },
-    projectionMode: { type: 'string' },
-    projectionPolicy: { type: 'string', default: 'exact-fit-only' },
-    projectionLeadMinutes: { type: 'string', default: '10' },
-    allowProjectionOutsideWindowEdge: { type: 'boolean', default: false },
-    headed: { type: 'boolean', default: false },
-    checkoutAuthMode: { type: 'string' },
-    notificationProfile: { type: 'string', default: 'test' },
-    scoutLeadMinutes: { type: 'string', default: '2' },
-    warmupLeadSeconds: { type: 'string', default: '45' },
-    help: { type: 'boolean', short: 'h' },
-  },
-  strict: false,
-});
-
-if (values.help || (!values.launchTime && values.prepOnly !== true)) {
+function printHelp(): void {
   console.log(`
 Bear Lake Booker - Booking / Rehearsal Wrapper
 
@@ -106,42 +97,79 @@ All remaining options are passed through to "npm run race".
 Compatibility:
   "npm run release" still works as an alias for "npm run book".
   `);
-  process.exit(values.help ? 0 : 1);
 }
 
-const launchTime = values.launchTime as string;
-const prepOnly = values.prepOnly === true;
-const parallelAccounts = values.parallelAccounts === true;
-const skipCartPreflight = values.skipCartPreflight === true;
-const targetDate = values.date as string;
-const stayLength = values.length as string;
-const loop = values.loop as string;
-const concurrency = parseInt(values.concurrency as string, 10);
-const scoutLeadMinutes = parseInt(values.scoutLeadMinutes as string, 10);
-const warmupLeadSeconds = parseInt(values.warmupLeadSeconds as string, 10);
-const projectionLeadMinutes = parseInt(values.projectionLeadMinutes as string, 10);
-const explicitSites = typeof values.sites === 'string'
-  ? values.sites.split(',').map((site) => site.trim().toUpperCase()).filter(Boolean)
-  : [];
-const siteListSpec = typeof values.siteList === 'string' ? values.siteList.trim() : '';
-const explicitAvailabilitySnapshot = typeof values.availabilitySnapshot === 'string'
-  ? values.availabilitySnapshot.trim()
-  : '';
-const requestedAccounts = typeof values.accounts === 'string'
-  ? normalizeCliAccounts(values.accounts.split(','), '[Release] ')
-  : [undefined];
-const headed = values.headed === true;
-const notificationProfile = normalizeNotificationProfile(values.notificationProfile as string | undefined);
-const projectionMode = typeof values.projectionMode === 'string' ? values.projectionMode.trim().toLowerCase() : '';
-const projectionPolicy = values.projectionPolicy === 'allow-partial' ? 'allow-partial' : 'exact-fit-only';
-const allowProjectionOutsideWindowEdge = values.allowProjectionOutsideWindowEdge === true;
-const checkoutAuthMode: 'auto' | 'manual' = values.checkoutAuthMode === 'auto'
-  ? 'auto'
-  : values.checkoutAuthMode === 'manual'
-    ? 'manual'
-    : headed
+function parseReleaseCliArgs(args: string[]): { showHelp: boolean; status: number } {
+  const { values } = parseArgs({
+    args,
+    options: {
+      launchTime: { type: 'string' },
+      prepOnly: { type: 'boolean', default: false },
+      parallelAccounts: { type: 'boolean', default: false },
+      skipCartPreflight: { type: 'boolean', default: false },
+      date: { type: 'string', short: 'd', default: '07/22/2026' },
+      length: { type: 'string', short: 'l', default: '6' },
+      loop: { type: 'string', short: 'o', default: 'BIRCH' },
+      concurrency: { type: 'string', short: 'c', default: '10' },
+      accounts: { type: 'string' },
+      sites: { type: 'string' },
+      siteList: { type: 'string' },
+      availabilitySnapshot: { type: 'string' },
+      projectionMode: { type: 'string' },
+      projectionPolicy: { type: 'string', default: 'exact-fit-only' },
+      projectionLeadMinutes: { type: 'string', default: '10' },
+      allowProjectionOutsideWindowEdge: { type: 'boolean', default: false },
+      headed: { type: 'boolean', default: false },
+      checkoutAuthMode: { type: 'string' },
+      notificationProfile: { type: 'string', default: 'test' },
+      scoutLeadMinutes: { type: 'string', default: '2' },
+      warmupLeadSeconds: { type: 'string', default: '45' },
+      help: { type: 'boolean', short: 'h' },
+    },
+    strict: false,
+  });
+
+  if (values.help || (!values.launchTime && values.prepOnly !== true)) {
+    printHelp();
+    return { showHelp: true, status: values.help ? 0 : 1 };
+  }
+
+  launchTime = values.launchTime as string;
+  prepOnly = values.prepOnly === true;
+  parallelAccounts = values.parallelAccounts === true;
+  skipCartPreflight = values.skipCartPreflight === true;
+  targetDate = values.date as string;
+  stayLength = values.length as string;
+  loop = values.loop as string;
+  concurrency = parseInt(values.concurrency as string, 10);
+  scoutLeadMinutes = parseInt(values.scoutLeadMinutes as string, 10);
+  warmupLeadSeconds = parseInt(values.warmupLeadSeconds as string, 10);
+  projectionLeadMinutes = parseInt(values.projectionLeadMinutes as string, 10);
+  explicitSites = typeof values.sites === 'string'
+    ? values.sites.split(',').map((site) => site.trim().toUpperCase()).filter(Boolean)
+    : [];
+  siteListSpec = typeof values.siteList === 'string' ? values.siteList.trim() : '';
+  explicitAvailabilitySnapshot = typeof values.availabilitySnapshot === 'string'
+    ? values.availabilitySnapshot.trim()
+    : '';
+  requestedAccounts = typeof values.accounts === 'string'
+    ? normalizeCliAccounts(values.accounts.split(','), '[Release] ')
+    : [undefined];
+  headed = values.headed === true;
+  notificationProfile = normalizeNotificationProfile(values.notificationProfile as string | undefined);
+  projectionMode = typeof values.projectionMode === 'string' ? values.projectionMode.trim().toLowerCase() : '';
+  projectionPolicy = values.projectionPolicy === 'allow-partial' ? 'allow-partial' : 'exact-fit-only';
+  allowProjectionOutsideWindowEdge = values.allowProjectionOutsideWindowEdge === true;
+  checkoutAuthMode = values.checkoutAuthMode === 'auto'
+    ? 'auto'
+    : values.checkoutAuthMode === 'manual'
       ? 'manual'
-      : 'auto';
+      : headed
+        ? 'manual'
+        : 'auto';
+
+  return { showHelp: false, status: 0 };
+}
 
 function formatClock(date: Date): string {
   return new Intl.DateTimeFormat('en-US', {
@@ -293,7 +321,7 @@ async function runProjectionShortlist(
   };
 }
 
-async function main(): Promise<void> {
+async function main(originalArgs: string[]): Promise<number> {
   if (prepOnly && projectionMode === 'window-edge') {
     throw new Error('Prep-only mode does not support projection mode. Run prep against an existing scout shortlist instead.');
   }
@@ -432,12 +460,12 @@ async function main(): Promise<void> {
   if (prepOnly) {
     console.log('');
     console.log(`[Release] Prep completed successfully. Session${skipCartPreflight ? '' : ' and cart'} preflight passed.`);
-    return;
+    return 0;
   }
 
   await waitUntil(schedule!.warmupAt, 'race warmup');
   const raceArgs = buildReleaseRaceArgs(
-    args,
+    originalArgs,
     launchTime,
     resolvedSites,
     notificationProfile,
@@ -450,10 +478,25 @@ async function main(): Promise<void> {
     env: process.env,
   });
 
-  process.exit(result.status ?? 1);
+  return result.status ?? 1;
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exit(1);
-});
+export async function runReleaseCliArgs(args = process.argv.slice(2)): Promise<number> {
+  const parsed = parseReleaseCliArgs(args);
+  if (parsed.showHelp) {
+    return parsed.status;
+  }
+
+  try {
+    return await main(args);
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    return 1;
+  }
+}
+
+if (require.main === module) {
+  void runReleaseCliArgs().then((code) => {
+    process.exitCode = code;
+  });
+}
