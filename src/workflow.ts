@@ -1,7 +1,12 @@
 import { parseArgs } from 'util';
 import { spawnSync } from 'child_process';
 import { classifyArrivalSnapshot, writeArrivalShortlistJson, writeArrivalShortlistMarkdown } from './arrival-shortlists';
-import { loadLatestAvailabilitySnapshot, resolveLatestAvailabilitySnapshotPath } from './availability-snapshots';
+import {
+  findMatchingAvailabilitySnapshots,
+  loadLatestAvailabilitySnapshot,
+  resolveLatestAvailabilitySnapshotPath,
+  type AvailabilitySnapshot,
+} from './availability-snapshots';
 import { buildArrivalStatusMatrix, buildStayWindowStatusMatrix } from './site-availability-utils';
 import { loadSiteList } from './site-lists';
 import { loadWorkflowConfig, WORKFLOW_CONFIG_FILENAME } from './workflow-config';
@@ -40,12 +45,46 @@ function buildValidationLaunchTime(now = new Date(), leadSeconds = 90): string {
 }
 
 function runCli(entryFile: string, args: string[]): void {
-  const result = spawnSync('npx', ['tsx', entryFile, ...args], {
+  const npxCommand = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+  const result = spawnSync(npxCommand, ['tsx', entryFile, ...args], {
     stdio: 'inherit',
   });
   if (result.status !== 0) {
     process.exit(result.status ?? 1);
   }
+}
+
+function findLatestExactFitSnapshot(input: {
+  loop: string;
+  stayLength: string;
+  targetDate: string;
+  siteListSource: string;
+}): {
+  snapshotPath: string;
+  snapshot: AvailabilitySnapshot;
+  exactFitSites: string[];
+} | null {
+  const matches = findMatchingAvailabilitySnapshots({
+    loop: input.loop,
+    stayLength: input.stayLength,
+    targetDate: input.targetDate,
+    siteListSource: input.siteListSource,
+    snapshotKind: 'site-calendar',
+  });
+
+  for (const { snapshotPath, snapshot } of matches) {
+    const shortlist = classifyArrivalSnapshot(snapshot, input.targetDate, snapshotPath);
+    const exactFitSites = shortlist.exactFitSites.map((site) => site.site);
+    if (exactFitSites.length > 0) {
+      return {
+        snapshotPath,
+        snapshot,
+        exactFitSites,
+      };
+    }
+  }
+
+  return null;
 }
 
 function printHelp(configPath: string | null, defaults: {
@@ -63,16 +102,22 @@ Use this when you want the "find sites before 8 AM, then book them at 8 AM" flow
 without remembering the lower-level flags.
 
 Usage:
-  npm run workflow -- help
-  npm run workflow -- scout --date MM/DD/YYYY --length <nights>
-  npm run workflow -- prep --date MM/DD/YYYY --length <nights>
-  npm run workflow -- validate --date MM/DD/YYYY --length <nights>
-  npm run workflow -- book --date MM/DD/YYYY --length <nights>
+  bear-lake help
+  bear-lake scout --date MM/DD/YYYY --length <nights>
+  bear-lake prep --date MM/DD/YYYY --length <nights>
+  bear-lake validate --date MM/DD/YYYY --length <nights>
+  bear-lake rehearse --date MM/DD/YYYY --length <nights>
+  bear-lake book --date MM/DD/YYYY --length <nights>
+
+Local without install:
+  npm run cli -- help
+  npm run cli -- scout --date MM/DD/YYYY --length <nights>
 
 Commands:
   scout    Run the pre-launch arrival sweep and save a shortlist
   prep     Validate session/cart and freeze the exact-fit sites from the latest scout snapshot
   validate Prove the scout shortlist feeds booking by running a near-term dry-run launch
+  rehearse Run the direct race dry run against the latest scout snapshot that still has exact-fit sites
   book     Use the latest matching scout snapshot to build a site list and start the 8 AM booking flow
 
 Useful options:
@@ -96,13 +141,14 @@ Current defaults:
   accounts=${defaults.accounts.join(', ') || '(default account)'}
 
 Examples:
-  npm run workflow -- scout --date 07/11/2026 --length 14
-  npm run workflow -- scout --date 07/11/2026 --length 14 --showMatrix
-  npm run workflow -- prep --date 07/11/2026 --length 14
-  npm run workflow -- prep --date 07/11/2026 --length 14 --accounts lisa@gmail.com,jason@gmail.com --parallelAccounts
-  npm run workflow -- validate --date 07/11/2026 --length 14
-  npm run workflow -- book --date 07/11/2026 --length 14
-  npm run workflow -- book --date 07/11/2026 --length 14 --dryRun
+  bear-lake scout --date 07/11/2026 --length 14
+  bear-lake scout --date 07/11/2026 --length 14 --showMatrix
+  bear-lake prep --date 07/11/2026 --length 14
+  bear-lake prep --date 07/11/2026 --length 14 --accounts lisa@gmail.com,jason@gmail.com --parallelAccounts
+  bear-lake validate --date 07/11/2026 --length 14
+  bear-lake rehearse --date 07/11/2026 --length 14
+  bear-lake book --date 07/11/2026 --length 14
+  bear-lake book --date 07/11/2026 --length 14 --dryRun
 `);
 }
 
@@ -235,11 +281,11 @@ async function main(): Promise<void> {
       }
     }
     console.log('');
-    console.log(`Next step: npm run workflow -- book --date ${date} --length ${stayLength}`);
+    console.log(`Next step: bear-lake book --date ${date} --length ${stayLength}`);
     return;
   }
 
-  if (command === 'prep' || command === 'validate' || command === 'book' || command === 'release') {
+  if (command === 'prep' || command === 'validate' || command === 'rehearse' || command === 'book' || command === 'release') {
     const snapshotPath = resolveLatestAvailabilitySnapshotPath({
       loop,
       stayLength,
@@ -248,7 +294,7 @@ async function main(): Promise<void> {
       snapshotKind: 'site-calendar',
     });
     if (!snapshotPath) {
-      throw new Error(`No matching scout snapshot found for ${date} (${stayLength} nights). Run "npm run workflow -- scout --date ${date} --length ${stayLength}" first.`);
+      throw new Error(`No matching scout snapshot found for ${date} (${stayLength} nights). Run "bear-lake scout --date ${date} --length ${stayLength}" first.`);
     }
 
     const snapshot = loadLatestAvailabilitySnapshot({
@@ -262,44 +308,73 @@ async function main(): Promise<void> {
       throw new Error(`Unable to load the latest scout snapshot for ${date} (${stayLength} nights).`);
     }
 
-    const shortlist = classifyArrivalSnapshot(snapshot, date, snapshotPath);
-    const exactFitSites = shortlist.exactFitSites.map((site) => site.site);
+    const exactFitSnapshot = command === 'rehearse'
+      ? findLatestExactFitSnapshot({
+          loop,
+          stayLength,
+          targetDate: date,
+          siteListSource: loadedSiteList.sourcePath,
+        })
+      : null;
+    const effectiveSnapshotPath = exactFitSnapshot?.snapshotPath ?? snapshotPath;
+    const effectiveSnapshot = exactFitSnapshot?.snapshot ?? snapshot;
+    const shortlist = classifyArrivalSnapshot(effectiveSnapshot, date, effectiveSnapshotPath);
+    const exactFitSites = exactFitSnapshot?.exactFitSites ?? shortlist.exactFitSites.map((site) => site.site);
     if (exactFitSites.length === 0) {
-      throw new Error(`No exact-fit sites were found for ${date} in the latest scout snapshot. Review ${snapshotPath} before launching booking.`);
+      throw new Error(`No exact-fit sites were found for ${date} in the latest scout snapshot. Review ${effectiveSnapshotPath} before launching booking.`);
     }
 
-    const effectiveLaunchTime = command === 'validate'
+    const effectiveLaunchTime = command === 'validate' || command === 'rehearse'
       ? buildValidationLaunchTime()
       : launchTime;
 
-    const bookingArgs = [
-      ...(command === 'prep' ? [] : ['--launchTime', effectiveLaunchTime]),
-      '-d', date,
-      '-l', stayLength,
-      '-o', loop,
-      '-c', String(bookingConcurrency),
-      '--sites', exactFitSites.join(','),
-      '--notificationProfile', notificationProfile,
-      '--availabilitySnapshot', snapshotPath,
-      ...(accounts.length > 0 ? ['--accounts', accounts.join(',')] : []),
-      ...(headed ? ['--headed'] : []),
-      ...(checkoutAuthMode ? ['--checkoutAuthMode', checkoutAuthMode] : []),
-      ...(skipCartPreflight ? ['--skipCartPreflight'] : []),
-      ...(command === 'prep'
-        ? ['--prepOnly', ...(parallelAccounts ? ['--parallelAccounts'] : [])]
-        : command === 'validate'
-          ? ['--dryRun']
-          : values.dryRun === true
-          ? ['--dryRun']
-          : ['--book']),
-    ];
+    const bookingArgs = command === 'rehearse'
+      ? [
+          '-d', date,
+          '-l', stayLength,
+          '-o', loop,
+          '-c', String(bookingConcurrency),
+          '--sites', exactFitSites.join(','),
+          '--notificationProfile', notificationProfile,
+          '--availabilitySnapshot', effectiveSnapshotPath,
+          ...(accounts.length > 0 ? ['--accounts', accounts.join(',')] : []),
+          '--headed',
+          ...(checkoutAuthMode ? ['--checkoutAuthMode', checkoutAuthMode] : []),
+          '--skipSessionPreflight',
+          '--skipCartPreflight',
+          '--dryRun',
+          '--time', effectiveLaunchTime,
+        ]
+      : [
+          ...(command === 'prep' ? [] : ['--launchTime', effectiveLaunchTime]),
+          '-d', date,
+          '-l', stayLength,
+          '-o', loop,
+          '-c', String(bookingConcurrency),
+          '--sites', exactFitSites.join(','),
+          '--notificationProfile', notificationProfile,
+          '--availabilitySnapshot', effectiveSnapshotPath,
+          ...(accounts.length > 0 ? ['--accounts', accounts.join(',')] : []),
+          ...(headed ? ['--headed'] : []),
+          ...(checkoutAuthMode ? ['--checkoutAuthMode', checkoutAuthMode] : []),
+          ...(skipCartPreflight ? ['--skipCartPreflight'] : []),
+          ...(command === 'prep'
+            ? ['--prepOnly', ...(parallelAccounts ? ['--parallelAccounts'] : [])]
+            : command === 'validate'
+              ? ['--dryRun']
+              : values.dryRun === true
+                ? ['--dryRun']
+                : ['--book']),
+        ];
 
     console.log(command === 'prep'
       ? '--- Guided Prep Plan ---'
       : command === 'validate'
         ? '--- Guided Validation Plan ---'
+        : command === 'rehearse'
+          ? '--- Guided Rehearsal Plan ---'
         : '--- Guided Booking Plan ---');
-    console.log(`Using scout snapshot: ${snapshotPath}`);
+    console.log(`Using scout snapshot: ${effectiveSnapshotPath}`);
     console.log(`Target sites: ${exactFitSites.join(', ')}`);
     if (command === 'prep') {
       console.log(`Intended launch time: ${launchTime}`);
@@ -307,17 +382,20 @@ async function main(): Promise<void> {
     } else if (command === 'validate') {
       console.log(`Validation launch time: ${effectiveLaunchTime}`);
       console.log(`Mode: dry-run handoff validation${skipCartPreflight ? ' (cart preflight skipped)' : ''}`);
+    } else if (command === 'rehearse') {
+      console.log(`Rehearsal launch time: ${effectiveLaunchTime}`);
+      console.log('Mode: direct race dry run (session/cart preflight skipped)');
     } else {
       console.log(`Launch time: ${effectiveLaunchTime}`);
       console.log(`Mode: ${values.dryRun === true ? 'dry run' : 'book to Order Details'}${skipCartPreflight ? ' (cart preflight skipped)' : ''}`);
     }
     console.log('');
 
-    runCli('src/release.ts', bookingArgs);
+    runCli(command === 'rehearse' ? 'src/race.ts' : 'src/release.ts', bookingArgs);
     return;
   }
 
-  throw new Error(`Unknown workflow command "${command}". Use "npm run workflow -- help".`);
+  throw new Error(`Unknown workflow command "${command}". Use "bear-lake help".`);
 }
 
 void main().catch((error) => {

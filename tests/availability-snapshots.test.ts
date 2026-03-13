@@ -4,6 +4,7 @@ import * as path from 'path';
 import {
   buildAvailabilitySnapshotPath,
   buildSnapshotSiteStrengths,
+  findMatchingAvailabilitySnapshots,
   loadAvailabilitySnapshot,
   loadLatestAvailabilitySnapshot,
   rankRequestedSitesForCapture,
@@ -130,6 +131,36 @@ describe('availability snapshots', () => {
     });
 
     expect(latest?.generatedAt).toBe('2026-03-11T03:00:00.000Z');
+  });
+
+  test('returns matching snapshots sorted newest-first', () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bear-lake-snapshots-'));
+    writeAvailabilitySnapshot(makeSnapshot({
+      generatedAt: '2026-03-10T03:00:00.000Z',
+      searchedAt: '2026-03-10T03:00:00.000Z',
+    }), path.join(tempDir, 'older.json'));
+    writeAvailabilitySnapshot(makeSnapshot({
+      generatedAt: '2026-03-12T03:00:00.000Z',
+      searchedAt: '2026-03-12T03:00:00.000Z',
+    }), path.join(tempDir, 'newest.json'));
+    writeAvailabilitySnapshot(makeSnapshot({
+      generatedAt: '2026-03-11T03:00:00.000Z',
+      searchedAt: '2026-03-11T03:00:00.000Z',
+    }), path.join(tempDir, 'middle.json'));
+
+    const matches = findMatchingAvailabilitySnapshots({
+      loop: 'BIRCH',
+      stayLength: '1',
+      targetDate: '06/15/2026',
+      siteListSource: '/repo/camp sites/preferred-sites.md',
+      snapshotsDir: tempDir,
+    });
+
+    expect(matches.map((entry) => entry.snapshot.generatedAt)).toEqual([
+      '2026-03-12T03:00:00.000Z',
+      '2026-03-11T03:00:00.000Z',
+      '2026-03-10T03:00:00.000Z',
+    ]);
   });
 
   test('ignores snapshots with the wrong stay length or snapshot kind', () => {

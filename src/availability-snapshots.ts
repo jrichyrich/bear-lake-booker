@@ -135,18 +135,29 @@ function findLatestAvailabilitySnapshot(options: {
   snapshotKind?: AvailabilitySnapshot['snapshotKind'];
   snapshotsDir?: string;
 }): { snapshotPath: string; snapshot: AvailabilitySnapshot } | null {
+  return findMatchingAvailabilitySnapshots(options)[0] ?? null;
+}
+
+export function findMatchingAvailabilitySnapshots(options: {
+  loop?: string;
+  stayLength?: string;
+  targetDate?: string;
+  siteListSource?: string;
+  snapshotKind?: AvailabilitySnapshot['snapshotKind'];
+  snapshotsDir?: string;
+}): Array<{ snapshotPath: string; snapshot: AvailabilitySnapshot }> {
   const snapshotsDir = options.snapshotsDir
     ? path.resolve(options.snapshotsDir)
     : getAvailabilitySnapshotsDir();
   if (!fs.existsSync(snapshotsDir)) {
-    return null;
+    return [];
   }
 
   const snapshotPaths = fs.readdirSync(snapshotsDir)
     .filter((entry) => entry.endsWith('.json'))
     .map((entry) => path.join(snapshotsDir, entry));
 
-  const matches = snapshotPaths
+  return snapshotPaths
     .map((snapshotPath) => {
       try {
         return { snapshotPath, snapshot: loadAvailabilitySnapshot(snapshotPath) };
@@ -180,8 +191,6 @@ function findLatestAvailabilitySnapshot(options: {
       return true;
     })
     .sort((left, right) => new Date(right.snapshot.generatedAt).getTime() - new Date(left.snapshot.generatedAt).getTime());
-
-  return matches[0] ?? null;
 }
 
 export function resolveLatestAvailabilitySnapshotPath(options: {

@@ -3,7 +3,11 @@
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
+  "bin": {
+    "bear-lake": "bin/bear-lake.js"
+  },
   "scripts": {
+    "cli": "node bin/bear-lake.js",
     "start": "tsx src/index.ts",
     "race": "tsx src/race.ts",
     "agent-race": "tsx src/race.ts",
