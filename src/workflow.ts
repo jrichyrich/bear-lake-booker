@@ -28,6 +28,17 @@ function addDays(value: string, days: number): string {
   return formatSlashDate(date);
 }
 
+function formatLocalClockTime(date: Date): string {
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  const seconds = String(date.getSeconds()).padStart(2, '0');
+  return `${hours}:${minutes}:${seconds}`;
+}
+
+function buildValidationLaunchTime(now = new Date(), leadSeconds = 90): string {
+  return formatLocalClockTime(new Date(now.getTime() + leadSeconds * 1000));
+}
+
 function runCli(entryFile: string, args: string[]): void {
   const result = spawnSync('npx', ['tsx', entryFile, ...args], {
     stdio: 'inherit',
@@ -54,14 +65,19 @@ without remembering the lower-level flags.
 Usage:
   npm run workflow -- help
   npm run workflow -- scout --date MM/DD/YYYY --length <nights>
+  npm run workflow -- prep --date MM/DD/YYYY --length <nights>
+  npm run workflow -- validate --date MM/DD/YYYY --length <nights>
   npm run workflow -- book --date MM/DD/YYYY --length <nights>
 
 Commands:
   scout    Run the pre-launch arrival sweep and save a shortlist
+  prep     Validate session/cart and freeze the exact-fit sites from the latest scout snapshot
+  validate Prove the scout shortlist feeds booking by running a near-term dry-run launch
   book     Use the latest matching scout snapshot to build a site list and start the 8 AM booking flow
 
 Useful options:
   --showMatrix   Print the website-style stay-window matrix in the guided scout summary
+  --parallelAccounts  When used with "prep", validate account sessions/carts concurrently
   --dryRun       When used with "book", open the booking flow without trying to hold a site
 
 Optional config:
@@ -81,6 +97,9 @@ Current defaults:
 Examples:
   npm run workflow -- scout --date 07/11/2026 --length 14
   npm run workflow -- scout --date 07/11/2026 --length 14 --showMatrix
+  npm run workflow -- prep --date 07/11/2026 --length 14
+  npm run workflow -- prep --date 07/11/2026 --length 14 --accounts lisa@gmail.com,jason@gmail.com --parallelAccounts
+  npm run workflow -- validate --date 07/11/2026 --length 14
   npm run workflow -- book --date 07/11/2026 --length 14
   npm run workflow -- book --date 07/11/2026 --length 14 --dryRun
 `);
@@ -102,6 +121,7 @@ const { values, positionals } = parseArgs({
     noHeaded: { type: 'boolean', default: false },
     checkoutAuthMode: { type: 'string' },
     showMatrix: { type: 'boolean', default: false },
+    parallelAccounts: { type: 'boolean', default: false },
     dryRun: { type: 'boolean', default: false },
     help: { type: 'boolean', short: 'h' },
   },
@@ -128,6 +148,7 @@ async function main(): Promise<void> {
     ? values.accounts.split(',').map((value) => value.trim()).filter(Boolean)
     : config.accounts;
   const showMatrix = values.showMatrix === true;
+  const parallelAccounts = values.parallelAccounts === true;
 
   if (values.help || command === 'help') {
     printHelp(configPath, {
@@ -215,7 +236,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  if (command === 'book' || command === 'release') {
+  if (command === 'prep' || command === 'validate' || command === 'book' || command === 'release') {
     const snapshotPath = resolveLatestAvailabilitySnapshotPath({
       loop,
       stayLength,
@@ -244,8 +265,12 @@ async function main(): Promise<void> {
       throw new Error(`No exact-fit sites were found for ${date} in the latest scout snapshot. Review ${snapshotPath} before launching booking.`);
     }
 
+    const effectiveLaunchTime = command === 'validate'
+      ? buildValidationLaunchTime()
+      : launchTime;
+
     const bookingArgs = [
-      '--launchTime', launchTime,
+      ...(command === 'prep' ? [] : ['--launchTime', effectiveLaunchTime]),
       '-d', date,
       '-l', stayLength,
       '-o', loop,
@@ -256,14 +281,32 @@ async function main(): Promise<void> {
       ...(accounts.length > 0 ? ['--accounts', accounts.join(',')] : []),
       ...(headed ? ['--headed'] : []),
       ...(checkoutAuthMode ? ['--checkoutAuthMode', checkoutAuthMode] : []),
-      ...(values.dryRun === true ? ['--dryRun'] : ['--book']),
+      ...(command === 'prep'
+        ? ['--prepOnly', ...(parallelAccounts ? ['--parallelAccounts'] : [])]
+        : command === 'validate'
+          ? ['--dryRun']
+          : values.dryRun === true
+          ? ['--dryRun']
+          : ['--book']),
     ];
 
-    console.log('--- Guided Booking Plan ---');
+    console.log(command === 'prep'
+      ? '--- Guided Prep Plan ---'
+      : command === 'validate'
+        ? '--- Guided Validation Plan ---'
+        : '--- Guided Booking Plan ---');
     console.log(`Using scout snapshot: ${snapshotPath}`);
     console.log(`Target sites: ${exactFitSites.join(', ')}`);
-    console.log(`Launch time: ${launchTime}`);
-    console.log(`Mode: ${values.dryRun === true ? 'dry run' : 'book to Order Details'}`);
+    if (command === 'prep') {
+      console.log(`Intended launch time: ${launchTime}`);
+      console.log(`Mode: session/cart preflight only (${parallelAccounts ? 'parallel accounts' : 'sequential accounts'})`);
+    } else if (command === 'validate') {
+      console.log(`Validation launch time: ${effectiveLaunchTime}`);
+      console.log('Mode: dry-run handoff validation');
+    } else {
+      console.log(`Launch time: ${effectiveLaunchTime}`);
+      console.log(`Mode: ${values.dryRun === true ? 'dry run' : 'book to Order Details'}`);
+    }
     console.log('');
 
     runCli('src/release.ts', bookingArgs);

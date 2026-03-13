@@ -45,6 +45,8 @@ const { values } = parseArgs({
   args,
   options: {
     launchTime: { type: 'string' },
+    prepOnly: { type: 'boolean', default: false },
+    parallelAccounts: { type: 'boolean', default: false },
     date: { type: 'string', short: 'd', default: '07/22/2026' },
     length: { type: 'string', short: 'l', default: '6' },
     loop: { type: 'string', short: 'o', default: 'BIRCH' },
@@ -67,12 +69,13 @@ const { values } = parseArgs({
   strict: false,
 });
 
-if (values.help || !values.launchTime) {
+if (values.help || (!values.launchTime && values.prepOnly !== true)) {
   console.log(`
 Bear Lake Booker - Booking / Rehearsal Wrapper
 
 Usage:
   npm run book -- --launchTime HH:MM:SS [race options]
+  npm run book -- --prepOnly [booking options]
 
 Required:
   --launchTime <HH:MM:SS>      Target launch time for today
@@ -90,6 +93,8 @@ Common options:
   --projectionPolicy <policy>    exact-fit-only or allow-partial [default: exact-fit-only]
   --projectionLeadMinutes <mins> Minutes before launch to run the projection crawl [default: 10]
   --allowProjectionOutsideWindowEdge  Allow projection when target date is not today's 4-month edge
+  --prepOnly                    Validate session + empty cart + resolved sites, then exit
+  --parallelAccounts            In prep-only mode, validate account sessions/carts concurrently
   --notificationProfile <name> test or production [default: test]
   --scoutLeadMinutes <mins>    Minutes before launch to freeze scout [default: 2]
   --warmupLeadSeconds <secs>   Seconds before launch to start race warmup [default: 45]
@@ -103,6 +108,8 @@ Compatibility:
 }
 
 const launchTime = values.launchTime as string;
+const prepOnly = values.prepOnly === true;
+const parallelAccounts = values.parallelAccounts === true;
 const targetDate = values.date as string;
 const stayLength = values.length as string;
 const loop = values.loop as string;
@@ -279,8 +286,14 @@ async function runProjectionShortlist(
 }
 
 async function main(): Promise<void> {
-  const schedule = resolveReleaseSchedule(new Date(), launchTime, scoutLeadMinutes, warmupLeadSeconds);
-  const projectionAt = projectionMode === 'window-edge'
+  if (prepOnly && projectionMode === 'window-edge') {
+    throw new Error('Prep-only mode does not support projection mode. Run prep against an existing scout shortlist instead.');
+  }
+
+  const schedule = prepOnly
+    ? null
+    : resolveReleaseSchedule(new Date(), launchTime, scoutLeadMinutes, warmupLeadSeconds);
+  const projectionAt = projectionMode === 'window-edge' && schedule
     ? resolveProjectionAt(schedule.launchAt, projectionLeadMinutes, schedule.warmupAt)
     : null;
   const loadedSiteList = explicitSites.length === 0 && siteListSpec ? loadSiteList(siteListSpec) : null;
@@ -300,9 +313,16 @@ async function main(): Promise<void> {
 
   console.log('--- Bear Lake Booker: Release / Rehearsal Wrapper ---');
   console.log(`[Release] Target date: ${targetDate}`);
-  console.log(`[Release] Launch time: ${launchTime}`);
-  console.log(`[Release] Scout time: ${formatClock(schedule.scoutAt)}`);
-  console.log(`[Release] Warmup start: ${formatClock(schedule.warmupAt)}`);
+  if (prepOnly) {
+    console.log('[Release] Mode: prep-only preflight');
+    if (launchTime) {
+      console.log(`[Release] Intended launch time: ${launchTime}`);
+    }
+  } else if (schedule) {
+    console.log(`[Release] Launch time: ${launchTime}`);
+    console.log(`[Release] Scout time: ${formatClock(schedule.scoutAt)}`);
+    console.log(`[Release] Warmup start: ${formatClock(schedule.warmupAt)}`);
+  }
   if (projectionAt) {
     console.log(`[Release] Projection time: ${formatClock(projectionAt)}`);
     console.log(`[Release] Projection policy: ${projectionPolicy}`);
@@ -316,12 +336,23 @@ async function main(): Promise<void> {
   }
   console.log(`[Release] Accounts: ${requestedAccounts.map((account) => getAccountDisplayName(account)).join(', ')}`);
 
-  for (const account of requestedAccounts) {
-    await ensureSessionAndEmptyCart(account);
+  if (prepOnly && parallelAccounts) {
+    console.log('[Release] Account preflight mode: parallel');
+    await Promise.all(requestedAccounts.map((account) => ensureSessionAndEmptyCart(account)));
+  } else {
+    if (prepOnly) {
+      console.log('[Release] Account preflight mode: sequential');
+    }
+    for (const account of requestedAccounts) {
+      await ensureSessionAndEmptyCart(account);
+    }
   }
 
   let resolvedSites: string[];
   if (projectionMode === 'window-edge') {
+    if (!schedule) {
+      throw new Error('Projection mode requires a launch schedule.');
+    }
     const expectedEdgeDate = computeExpectedWindowEdgeDate(schedule.launchAt);
     if (targetDate !== expectedEdgeDate) {
       const warning = `[Release] Projection mode expects the window-edge target date ${expectedEdgeDate}, but got ${targetDate}.`;
@@ -358,7 +389,7 @@ async function main(): Promise<void> {
       console.warn('[Release] No exact-fit sites were found. Falling back to partial-fit sites because --projectionPolicy allow-partial was selected.');
     }
   } else {
-    if (explicitSites.length === 0) {
+    if (!prepOnly && explicitSites.length === 0 && schedule) {
       await waitUntil(schedule.scoutAt, 'site scout');
     }
     resolvedSites = explicitSites.length > 0
@@ -369,8 +400,14 @@ async function main(): Promise<void> {
   console.log('[Release] Resolved launch plan:');
   console.log(`  Date: ${targetDate}`);
   console.log(`  Loop: ${loop}`);
-  console.log(`  Launch time: ${launchTime}`);
-  console.log(`  Warmup start: ${formatClock(schedule.warmupAt)}`);
+  if (prepOnly) {
+    if (launchTime) {
+      console.log(`  Intended launch time: ${launchTime}`);
+    }
+  } else if (schedule) {
+    console.log(`  Launch time: ${launchTime}`);
+    console.log(`  Warmup start: ${formatClock(schedule.warmupAt)}`);
+  }
   console.log(`  Notification profile: ${notificationProfile}`);
   if (loadedSiteList) {
     console.log(`  Site list source: ${loadedSiteList.sourcePath}`);
@@ -381,7 +418,13 @@ async function main(): Promise<void> {
   console.log(`  Sites: ${resolvedSites.join(', ')}`);
   console.log(`  Accounts: ${requestedAccounts.map((account) => getAccountDisplayName(account)).join(', ')}`);
 
-  await waitUntil(schedule.warmupAt, 'race warmup');
+  if (prepOnly) {
+    console.log('');
+    console.log('[Release] Prep completed successfully. Session and cart preflight passed.');
+    return;
+  }
+
+  await waitUntil(schedule!.warmupAt, 'race warmup');
   const raceArgs = buildReleaseRaceArgs(
     args,
     launchTime,

@@ -216,4 +216,33 @@ describe('release-utils', () => {
       '--sites', 'BH32',
     ]);
   });
+
+  test('prep-only flag is stripped before building race args', () => {
+    expect(buildReleaseRaceArgs([
+      '--prepOnly',
+      '-d', '07/15/2026',
+      '--book',
+    ], '07:59:59', ['BH32'], 'test')).toEqual([
+      '-d', '07/15/2026',
+      '--book',
+      '--time', '07:59:59',
+      '--notificationProfile', 'test',
+      '--sites', 'BH32',
+    ]);
+  });
+
+  test('parallelAccounts flag is stripped before building race args', () => {
+    expect(buildReleaseRaceArgs([
+      '--prepOnly',
+      '--parallelAccounts',
+      '-d', '07/15/2026',
+      '--book',
+    ], '07:59:59', ['BH32'], 'test')).toEqual([
+      '-d', '07/15/2026',
+      '--book',
+      '--time', '07:59:59',
+      '--notificationProfile', 'test',
+      '--sites', 'BH32',
+    ]);
+  });
 });

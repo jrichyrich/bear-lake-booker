@@ -122,6 +122,8 @@ type StripOptionConfig = {
 
 const WRAPPER_ONLY_OPTIONS: StripOptionConfig[] = [
   { name: '--launchTime', takesValue: true },
+  { name: '--prepOnly', takesValue: false },
+  { name: '--parallelAccounts', takesValue: false },
   { name: '--scoutLeadMinutes', takesValue: true },
   { name: '--warmupLeadSeconds', takesValue: true },
   { name: '--projectionMode', takesValue: true },

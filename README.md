@@ -66,6 +66,9 @@ If present, `race.ts` sends one end-of-run inventory summary to each configured 
 - Show the simplified flow and loaded defaults: `npm run workflow -- help`
 - Morning scout for a 14-night target date: `npm run workflow -- scout --date 07/11/2026 --length 14`
 - Morning scout with the website-style stay-window matrix: `npm run workflow -- scout --date 07/11/2026 --length 14 --showMatrix`
+- Preflight the latest scout shortlist before 8 AM: `npm run workflow -- prep --date 07/11/2026 --length 14`
+- Preflight two accounts in parallel: `npm run workflow -- prep --date 07/11/2026 --length 14 --accounts lisa@gmail.com,jason@gmail.com --parallelAccounts`
+- Validate the scout-to-book handoff with a near-term dry run: `npm run workflow -- validate --date 07/11/2026 --length 14`
 - 8 AM booking run from the latest matching scout snapshot: `npm run workflow -- book --date 07/11/2026 --length 14`
 
 Optional defaults can live in `bear-lake-workflow.json`. Start from [`bear-lake-workflow.example.json`](/Users/jasricha/Documents/Github_Personal/bear-lake-booker/bear-lake-workflow.example.json).
