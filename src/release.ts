@@ -47,6 +47,7 @@ const { values } = parseArgs({
     launchTime: { type: 'string' },
     prepOnly: { type: 'boolean', default: false },
     parallelAccounts: { type: 'boolean', default: false },
+    skipCartPreflight: { type: 'boolean', default: false },
     date: { type: 'string', short: 'd', default: '07/22/2026' },
     length: { type: 'string', short: 'l', default: '6' },
     loop: { type: 'string', short: 'o', default: 'BIRCH' },
@@ -95,6 +96,7 @@ Common options:
   --allowProjectionOutsideWindowEdge  Allow projection when target date is not today's 4-month edge
   --prepOnly                    Validate session + empty cart + resolved sites, then exit
   --parallelAccounts            In prep-only mode, validate account sessions/carts concurrently
+  --skipCartPreflight           Skip cart preflight and only validate sessions
   --notificationProfile <name> test or production [default: test]
   --scoutLeadMinutes <mins>    Minutes before launch to freeze scout [default: 2]
   --warmupLeadSeconds <secs>   Seconds before launch to start race warmup [default: 45]
@@ -110,6 +112,7 @@ Compatibility:
 const launchTime = values.launchTime as string;
 const prepOnly = values.prepOnly === true;
 const parallelAccounts = values.parallelAccounts === true;
+const skipCartPreflight = values.skipCartPreflight === true;
 const targetDate = values.date as string;
 const stayLength = values.length as string;
 const loop = values.loop as string;
@@ -168,7 +171,12 @@ async function ensureSessionAndEmptyCart(account?: string): Promise<void> {
     throw new Error(`[${displayName}] Session validation failed.`);
   }
 
-    const browser = await chromium.launch({ headless: !headed });
+  if (skipCartPreflight) {
+    console.log(`[Release][${displayName}] Cart preflight skipped.`);
+    return;
+  }
+
+  const browser = await chromium.launch({ headless: !headed });
   try {
     const context = await browser.newContext(sessionExists(account)
       ? {
@@ -323,6 +331,9 @@ async function main(): Promise<void> {
     console.log(`[Release] Scout time: ${formatClock(schedule.scoutAt)}`);
     console.log(`[Release] Warmup start: ${formatClock(schedule.warmupAt)}`);
   }
+  if (skipCartPreflight) {
+    console.log('[Release] Cart preflight: skipped');
+  }
   if (projectionAt) {
     console.log(`[Release] Projection time: ${formatClock(projectionAt)}`);
     console.log(`[Release] Projection policy: ${projectionPolicy}`);
@@ -420,7 +431,7 @@ async function main(): Promise<void> {
 
   if (prepOnly) {
     console.log('');
-    console.log('[Release] Prep completed successfully. Session and cart preflight passed.');
+    console.log(`[Release] Prep completed successfully. Session${skipCartPreflight ? '' : ' and cart'} preflight passed.`);
     return;
   }
 
@@ -433,6 +444,7 @@ async function main(): Promise<void> {
     loadedSiteList?.sourcePath,
     resolvedAvailabilitySnapshotPath || undefined,
   );
+  raceArgs.push('--skipSessionPreflight');
   const result = spawnSync('npx', ['tsx', 'src/race.ts', ...raceArgs], {
     stdio: 'inherit',
     env: process.env,

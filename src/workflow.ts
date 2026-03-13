@@ -78,6 +78,7 @@ Commands:
 Useful options:
   --showMatrix   Print the website-style stay-window matrix in the guided scout summary
   --parallelAccounts  When used with "prep", validate account sessions/carts concurrently
+  --skipCartPreflight  When used with "prep", "validate", or "book", skip early cart preflight
   --dryRun       When used with "book", open the booking flow without trying to hold a site
 
 Optional config:
@@ -122,6 +123,7 @@ const { values, positionals } = parseArgs({
     checkoutAuthMode: { type: 'string' },
     showMatrix: { type: 'boolean', default: false },
     parallelAccounts: { type: 'boolean', default: false },
+    skipCartPreflight: { type: 'boolean', default: false },
     dryRun: { type: 'boolean', default: false },
     help: { type: 'boolean', short: 'h' },
   },
@@ -149,6 +151,7 @@ async function main(): Promise<void> {
     : config.accounts;
   const showMatrix = values.showMatrix === true;
   const parallelAccounts = values.parallelAccounts === true;
+  const skipCartPreflight = values.skipCartPreflight === true;
 
   if (values.help || command === 'help') {
     printHelp(configPath, {
@@ -281,6 +284,7 @@ async function main(): Promise<void> {
       ...(accounts.length > 0 ? ['--accounts', accounts.join(',')] : []),
       ...(headed ? ['--headed'] : []),
       ...(checkoutAuthMode ? ['--checkoutAuthMode', checkoutAuthMode] : []),
+      ...(skipCartPreflight ? ['--skipCartPreflight'] : []),
       ...(command === 'prep'
         ? ['--prepOnly', ...(parallelAccounts ? ['--parallelAccounts'] : [])]
         : command === 'validate'
@@ -299,13 +303,13 @@ async function main(): Promise<void> {
     console.log(`Target sites: ${exactFitSites.join(', ')}`);
     if (command === 'prep') {
       console.log(`Intended launch time: ${launchTime}`);
-      console.log(`Mode: session/cart preflight only (${parallelAccounts ? 'parallel accounts' : 'sequential accounts'})`);
+      console.log(`Mode: ${skipCartPreflight ? 'session preflight only' : 'session/cart preflight only'} (${parallelAccounts ? 'parallel accounts' : 'sequential accounts'})`);
     } else if (command === 'validate') {
       console.log(`Validation launch time: ${effectiveLaunchTime}`);
-      console.log('Mode: dry-run handoff validation');
+      console.log(`Mode: dry-run handoff validation${skipCartPreflight ? ' (cart preflight skipped)' : ''}`);
     } else {
       console.log(`Launch time: ${effectiveLaunchTime}`);
-      console.log(`Mode: ${values.dryRun === true ? 'dry run' : 'book to Order Details'}`);
+      console.log(`Mode: ${values.dryRun === true ? 'dry run' : 'book to Order Details'}${skipCartPreflight ? ' (cart preflight skipped)' : ''}`);
     }
     console.log('');
 

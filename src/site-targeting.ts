@@ -68,15 +68,7 @@ export function assignPreferredSitesToAgents(
     return agents.map(() => null);
   }
 
-  if (deduped.length >= agents.length) {
-    return agents.map((_, index) => deduped[index] ?? null);
-  }
-
-  return agents.map((agent, index) => {
-    const accountOffset = Math.max(agent.localAgentIndex - 1, 0);
-    const rotated = rotate(deduped, index + accountOffset);
-    return rotated[0] ?? null;
-  });
+  return agents.map((_, index) => deduped[index % deduped.length] ?? null);
 }
 
 export function prioritizeAccountAwareTargetSiteIds(

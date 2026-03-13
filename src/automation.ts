@@ -574,9 +574,30 @@ async function readCartStateFromPage(
     }
 
     await page.goto(CART_URL, { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
-    const bodyText = (await page.textContent('body')) || '';
+    const cartSnapshot = await page.evaluate(() => {
+      const bodyText = document.body?.textContent ?? '';
+      const shoppingListText = document.querySelector('#shoppinglist')?.textContent ?? '';
+      const cartCountText = document.querySelector('#shoppingcartnumdivid')?.textContent?.trim() ?? '';
+      const emptyCartMessage = document.querySelector('.emptyCartMsgClass')?.textContent ?? '';
+      return {
+        bodyText,
+        shoppingListText,
+        cartCountText,
+        emptyCartMessage,
+      };
+    }).catch(() => ({
+      bodyText: '',
+      shoppingListText: '',
+      cartCountText: '',
+      emptyCartMessage: '',
+    }));
+    const bodyText = cartSnapshot.bodyText;
+    const emptyCart =
+      cartSnapshot.emptyCartMessage.toLowerCase().includes('shopping cart is empty')
+      || cartSnapshot.cartCountText === '0';
+    const cartText = cartSnapshot.shoppingListText || bodyText;
     return {
-      siteIds: extractCartSiteIds(bodyText),
+      siteIds: emptyCart ? [] : extractCartSiteIds(cartText),
       url: page.url(),
       bodyText,
       checkoutLoginDetected: await isCheckoutLoginPage(page).catch(() => false),

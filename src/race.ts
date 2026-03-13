@@ -36,6 +36,7 @@ import {
   openSiteDetails,
   injectSession,
   saveSearchResultsDebugArtifacts,
+  type SiteSelection,
 } from './automation';
 
 const { values } = parseArgs({
@@ -64,6 +65,8 @@ const { values } = parseArgs({
     notificationProfile: { type: 'string', default: 'test' },
     checkoutAuthMode: { type: 'string' },
     launchMode: { type: 'string', default: 'preload' },
+    skipCartPreflight: { type: 'boolean', default: false },
+    skipSessionPreflight: { type: 'boolean', default: false },
     help: { type: 'boolean', short: 'h' },
   },
 });
@@ -99,6 +102,8 @@ Options:
   --notificationProfile <name>  test or production [default: test]
   --checkoutAuthMode <mode>     auto or manual [default: manual when headed, else auto]
   --launchMode <mode>           preload, refresh, or fresh-page [default: preload]
+  --skipCartPreflight           Skip the initial empty-cart check before launch
+  --skipSessionPreflight        Skip the initial session refresh because a wrapper already handled it
   -h, --help                    Show help
   `);
   process.exit(0);
@@ -142,6 +147,8 @@ const CHECKOUT_AUTH_MODE: 'auto' | 'manual' = values.checkoutAuthMode === 'auto'
     : IS_HEADED
       ? 'manual'
       : 'auto';
+const SKIP_CART_PREFLIGHT = values.skipCartPreflight === true;
+const SKIP_SESSION_PREFLIGHT = values.skipSessionPreflight === true;
 const RUN_STARTED_AT = Date.now();
 const REQUESTED_ACCOUNTS = typeof values.accounts === 'string'
   ? Array.from(new Set(
@@ -263,6 +270,49 @@ function createAgentRunSummary(agentId: number, account: CaptureAccount, preferr
   };
   agentRunSummaries.set(agentId, summary);
   return summary;
+}
+
+function buildSnapshotFallbackSelections(targetSites: string[]): SiteSelection[] {
+  if (!AVAILABILITY_SNAPSHOT || targetSites.length === 0) {
+    return [];
+  }
+
+  const targetSiteIds = new Set(targetSites.map((site) => site.trim().toUpperCase()).filter(Boolean));
+  return AVAILABILITY_SNAPSHOT.results
+    .filter((result) => result.loop.trim().toUpperCase() === LOOP.trim().toUpperCase())
+    .filter((result) => targetSiteIds.has(result.site.trim().toUpperCase()))
+    .filter((result) => Boolean(result.detailsUrl))
+    .map((result) => {
+      const detailsUrl = new URL(result.detailsUrl);
+      detailsUrl.searchParams.set('arvdate', TARGET_DATE);
+      detailsUrl.searchParams.set('lengthOfStay', STAY_LENGTH);
+      return {
+        site: result.site.trim().toUpperCase(),
+        detailsUrl: detailsUrl.toString(),
+        actionText: 'SNAPSHOT FALLBACK',
+      } satisfies SiteSelection;
+    });
+}
+
+function mergeSiteSelections(primary: SiteSelection[], secondary: SiteSelection[]): SiteSelection[] {
+  const merged = new Map<string, SiteSelection>();
+  for (const selection of primary) {
+    merged.set(selection.site.trim().toUpperCase(), selection);
+  }
+  for (const selection of secondary) {
+    const normalizedSite = selection.site.trim().toUpperCase();
+    if (!merged.has(normalizedSite)) {
+      merged.set(normalizedSite, selection);
+    }
+  }
+  return Array.from(merged.values());
+}
+
+function isClosedContextError(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return normalized.includes('target page, context or browser has been closed')
+    || normalized.includes('target closed')
+    || normalized.includes('page has been closed');
 }
 
 function finishAgentRun(summary: AgentRunSummary, outcome: AgentRunSummary['outcome'], error?: string): void {
@@ -524,9 +574,11 @@ async function runAgent(spec: AgentSpec, context: BrowserContext) {
       agentSummary.launch = launchResult.telemetry;
     }
 
-    const candidates = (await resolveTargetSites(page, TARGET_DATE, STAY_LENGTH, LOOP)).filter(
+    const liveCandidates = (await resolveTargetSites(page, TARGET_DATE, STAY_LENGTH, LOOP)).filter(
       (candidate) => SITE_ALLOWLIST.length === 0 || SITE_ALLOWLIST.includes(candidate.site.toUpperCase()),
     );
+    const snapshotCandidates = buildSnapshotFallbackSelections(SITE_ALLOWLIST);
+    const candidates = mergeSiteSelections(liveCandidates, snapshotCandidates);
     agentSummary.candidateSites = candidates.map((candidate) => candidate.site);
 
     if (candidates.length === 0) {
@@ -690,8 +742,13 @@ async function runAgent(spec: AgentSpec, context: BrowserContext) {
       finishAgentRun(agentSummary, agentSummary.outcome === 'cart-failed' ? 'cart-failed' : 'exhausted');
     }
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (isClosedContextError(message) && shouldStopAgent(agentId, account.storageKey)) {
+      finishAgentRun(agentSummary, 'stopped');
+      return;
+    }
     console.error(`[Agent ${agentId}] Error: ${error}`);
-    finishAgentRun(agentSummary, 'error', error instanceof Error ? error.message : String(error));
+    finishAgentRun(agentSummary, 'error', message);
   } finally {
     if (fallbackSearchContext) {
       await fallbackSearchContext.close().catch(() => {});
@@ -703,17 +760,29 @@ async function runAgent(spec: AgentSpec, context: BrowserContext) {
 async function launchCapture(targetSites: string[]): Promise<CaptureOutcome> {
   // 1. Ensure we have a valid session before starting any agents
   readyAccountsForRun = [];
-  for (const account of configuredAccounts) {
-    const sessionResult = await ensureActiveSession(account.account, {
-      logPrefix: `[Pre-Flight][${account.displayName}] `,
-    });
-    sessionPreflightTelemetry.push({
-      account: account.displayName,
-      result: sessionResult,
-      checkedAt: new Date().toISOString(),
-    });
-    if (sessionResult !== 'failed') {
-      readyAccountsForRun.push(account);
+  if (SKIP_SESSION_PREFLIGHT) {
+    readyAccountsForRun = [...configuredAccounts];
+    for (const account of configuredAccounts) {
+      sessionPreflightTelemetry.push({
+        account: account.displayName,
+        result: 'skipped',
+        checkedAt: new Date().toISOString(),
+      });
+    }
+    console.log('[Race] Session preflight skipped.');
+  } else {
+    for (const account of configuredAccounts) {
+      const sessionResult = await ensureActiveSession(account.account, {
+        logPrefix: `[Pre-Flight][${account.displayName}] `,
+      });
+      sessionPreflightTelemetry.push({
+        account: account.displayName,
+        result: sessionResult,
+        checkedAt: new Date().toISOString(),
+      });
+      if (sessionResult !== 'failed') {
+        readyAccountsForRun.push(account);
+      }
     }
   }
 
@@ -769,7 +838,7 @@ async function launchCapture(targetSites: string[]): Promise<CaptureOutcome> {
     }
   }
 
-  if (AUTO_BOOK && !DRY_RUN) {
+  if (AUTO_BOOK && !DRY_RUN && !SKIP_CART_PREFLIGHT) {
     let preflightCartBlocked = false;
     for (const account of readyAccountsForRun) {
       const runtime = accountBookerRuntimes.get(account.storageKey);
@@ -816,6 +885,8 @@ async function launchCapture(targetSites: string[]): Promise<CaptureOutcome> {
       }
       return 'error';
     }
+  } else if (AUTO_BOOK && !DRY_RUN && SKIP_CART_PREFLIGHT) {
+    console.log('[Race] Cart preflight skipped.');
   }
 
   const promises: Promise<void>[] = [];
