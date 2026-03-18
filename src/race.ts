@@ -158,7 +158,7 @@ const REQUESTED_ACCOUNTS = typeof values.accounts === 'string'
 
 type AgentContextRecord = {
   accountKey: string;
-  context: BrowserContext;
+  page: Page;
 };
 
 type AgentSpec = {
@@ -457,7 +457,7 @@ async function reconcileVerifiedCartState(account: CaptureAccount): Promise<void
 async function cancelRemainingAgents(accountKey: string, excludeAgentId: number) {
   for (const [agentId, record] of activeContexts.entries()) {
     if (record.accountKey === accountKey && agentId !== excludeAgentId) {
-      await record.context.close().catch(() => {});
+      await record.page.close().catch(() => {});
     }
   }
 }
@@ -528,17 +528,17 @@ async function waitForAvailability(): Promise<SiteAvailability[]> {
   }
 }
 
-async function runAgent(spec: AgentSpec, context: BrowserContext) {
+async function runAgent(spec: AgentSpec, sharedContext: BrowserContext) {
   const { agentId, account, preferredSite, localAgentIndex } = spec;
-  activeContexts.set(agentId, { accountKey: account.storageKey, context });
-  let page = await context.newPage();
+  let page = await sharedContext.newPage();
+  activeContexts.set(agentId, { accountKey: account.storageKey, page });
   let fallbackSearchContext: BrowserContext | null = null;
   const agentSummary = createAgentRunSummary(agentId, account, preferredSite);
   try {
     const label = `[${account.displayName}][Agent ${localAgentIndex}] `;
     try {
       const launchResult = await executeLaunchStrategy({
-        context,
+        context: sharedContext,
         page,
         loop: LOOP,
         targetDate: TARGET_DATE,
@@ -552,7 +552,7 @@ async function runAgent(spec: AgentSpec, context: BrowserContext) {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const shouldRetryWithGuestSearch = message.includes('Loop "') || message.includes('Search form did not fully initialize');
-      const browser = context.browser();
+      const browser = sharedContext.browser();
       if (!shouldRetryWithGuestSearch || !browser) {
         throw error;
       }
@@ -714,6 +714,7 @@ async function runAgent(spec: AgentSpec, context: BrowserContext) {
             if (claimed) {
               agentSummary.heldSite = selection.site;
               finishAgentRun(agentSummary, 'order-details-held');
+              await runtime?.saveSession();
             }
             return claimed;
           },
@@ -754,7 +755,11 @@ async function runAgent(spec: AgentSpec, context: BrowserContext) {
       await fallbackSearchContext.close().catch(() => {});
     }
     activeContexts.delete(agentId);
-    await context.close().catch(() => {});
+    // Do NOT close the shared context — it's owned by AccountBookerRuntime.
+    // Only close the agent's page if it's still open.
+    if (page && !page.isClosed()) {
+      await page.close().catch(() => {});
+    }
   }
 }
 async function launchCapture(targetSites: string[]): Promise<CaptureOutcome> {
@@ -834,7 +839,7 @@ async function launchCapture(targetSites: string[]): Promise<CaptureOutcome> {
 
     const booker = accountBookers.get(account.storageKey);
     if (booker) {
-      accountBookerRuntimes.set(account.storageKey, new AccountBookerRuntime(booker, bookerContext));
+      accountBookerRuntimes.set(account.storageKey, new AccountBookerRuntime(booker, bookerContext, account.account));
     }
   }
 
@@ -891,26 +896,12 @@ async function launchCapture(targetSites: string[]): Promise<CaptureOutcome> {
 
   const promises: Promise<void>[] = [];
   for (const [i, spec] of agentSpecs.entries()) {
-    const { agentId, account, localAgentIndex } = spec;
-    let context: BrowserContext;
-    const sessionPath = getReadableSessionPath(account.account);
-    const hasSession = sessionExists(account.account);
-
-    if (PROFILE_MODE === 'persistent') {
-      const path = `${PROFILE_DIR}/${account.storageKey}/agent-${localAgentIndex}`;
-      const options = { headless: !IS_HEADED, timezoneId: 'America/Denver' };
-      context = await chromium.launchPersistentContext(path, options);
-      if (hasSession) {
-        console.log(`[${account.displayName}][Agent ${localAgentIndex}] Refreshing session state...`);
-        await injectSession(context, account.account);
-      }
-    } else {
-      context = await browser!.newContext({
-        storageState: hasSession ? sessionPath : undefined,
-        timezoneId: 'America/Denver',
-      });
+    const runtime = accountBookerRuntimes.get(spec.account.storageKey);
+    if (!runtime) {
+      console.error(`[Race] No runtime found for ${spec.account.displayName}. Skipping agent ${spec.agentId}.`);
+      continue;
     }
-    promises.push(sleep(i * 300).then(() => runAgent(spec, context)));
+    promises.push(sleep(i * 300).then(() => runAgent(spec, runtime.context)));
   }
 
   await Promise.all(promises);
