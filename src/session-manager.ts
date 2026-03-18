@@ -64,13 +64,37 @@ export async function ensureActiveSession(
   account?: string,
   options: EnsureActiveSessionOptions = {},
 ): Promise<SessionEnsureResult> {
+  const result = await ensureActiveSessionWithContext(account, options);
+  // Close the context if one was returned — callers that don't need it get cleanup for free.
+  if (result.context) {
+    await result.context.close().catch(() => {});
+  }
+  return result.status;
+}
+
+export type SessionEnsureWithContextResult = {
+  status: SessionEnsureResult;
+  context: import('playwright').BrowserContext | null;
+};
+
+/**
+ * Like ensureActiveSession, but when a renewal is needed, returns the live
+ * authenticated BrowserContext instead of closing the browser.  The caller
+ * owns the context and must close it when done.
+ *
+ * When the session is already active, context is null (no browser was opened).
+ */
+export async function ensureActiveSessionWithContext(
+  account?: string,
+  options: EnsureActiveSessionOptions = {},
+): Promise<SessionEnsureWithContextResult> {
   const normalizedAccount = normalizeAccount(account);
   const label = normalizedAccount ?? 'default';
   const prefix = options.logPrefix ?? '';
 
   if (await hasActiveSession(normalizedAccount)) {
     console.log(`${prefix}Account session for ${label} is valid for account access. Proceeding.`);
-    return 'active';
+    return { status: 'active', context: null };
   }
 
   console.log(`${prefix}Account session for ${label} is expired or missing. Opening headed browser for manual login...`);
@@ -100,11 +124,14 @@ export async function ensureActiveSession(
     const sessionPath = getSessionPath(normalizedAccount);
     await context.storageState({ path: sessionPath });
     console.log(`${prefix}Login confirmed. Saved refreshed account session to ${sessionPath}.`);
-    return 'renewed';
+
+    // Close the login page but keep the context alive for the caller.
+    await page.close().catch(() => {});
+
+    return { status: 'renewed', context };
   } catch {
     console.error(`${prefix}Manual account login timed out or failed for ${label}.`);
-    return 'failed';
-  } finally {
     await browser.close().catch(() => {});
+    return { status: 'failed', context: null };
   }
 }

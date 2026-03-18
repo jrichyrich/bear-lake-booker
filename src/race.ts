@@ -21,7 +21,7 @@ import { type AccountRunSummary, type AgentRunSummary, type RunSummary, writeRun
 import { CAPTURE_EXIT_CODES, type CaptureResultArtifact, captureOutcomeToExitCode, type CaptureOutcome } from './flow-contract';
 import { getAccountDisplayName, getAccountStorageKey, getReadableSessionPath, normalizeCliAccounts, sessionExists } from './session-utils';
 import { executeLaunchStrategy, parseLaunchMode } from './launch-strategy';
-import { ensureActiveSession } from './session-manager';
+import { ensureActiveSession, ensureActiveSessionWithContext } from './session-manager';
 import {
   assignPreferredSitesToAgents,
   filterTargetSiteIds,
@@ -188,6 +188,7 @@ const accountBookers = new Map<string, AccountBooker>(
   ]),
 );
 const accountBookerRuntimes = new Map<string, AccountBookerRuntime>();
+const preflightContexts = new Map<string, BrowserContext>();
 const activeContexts = new Map<number, AgentContextRecord>();
 const agentRunSummaries = new Map<number, AgentRunSummary>();
 const availabilityTelemetry: {
@@ -777,16 +778,20 @@ async function launchCapture(targetSites: string[]): Promise<CaptureOutcome> {
     console.log('[Race] Session preflight skipped.');
   } else {
     for (const account of configuredAccounts) {
-      const sessionResult = await ensureActiveSession(account.account, {
+      const sessionResult = await ensureActiveSessionWithContext(account.account, {
         logPrefix: `[Pre-Flight][${account.displayName}] `,
       });
       sessionPreflightTelemetry.push({
         account: account.displayName,
-        result: sessionResult,
+        result: sessionResult.status,
         checkedAt: new Date().toISOString(),
       });
-      if (sessionResult !== 'failed') {
+      if (sessionResult.status !== 'failed') {
         readyAccountsForRun.push(account);
+      }
+      // Stash the live context so it can be reused as the booker context.
+      if (sessionResult.context) {
+        preflightContexts.set(account.storageKey, sessionResult.context);
       }
     }
   }
@@ -822,7 +827,13 @@ async function launchCapture(targetSites: string[]): Promise<CaptureOutcome> {
     const sessionPath = getReadableSessionPath(account.account);
     const hasSession = sessionExists(account.account);
 
-    if (PROFILE_MODE === 'persistent') {
+    // Prefer the live context from session preflight — it has a warm, authenticated session.
+    const liveContext = preflightContexts.get(account.storageKey);
+    if (liveContext) {
+      console.log(`[${account.displayName}][Booker] Reusing live session from preflight.`);
+      bookerContext = liveContext;
+      preflightContexts.delete(account.storageKey);
+    } else if (PROFILE_MODE === 'persistent') {
       const bookerPath = `${PROFILE_DIR}/${account.storageKey}/booker`;
       const options = { headless: !IS_HEADED, timezoneId: 'America/Denver' };
       bookerContext = await chromium.launchPersistentContext(bookerPath, options);
