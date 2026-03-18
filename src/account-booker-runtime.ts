@@ -8,6 +8,7 @@ import {
   type SiteSelection,
 } from './automation';
 import { type AccountBooker, type CaptureAccount } from './account-booker';
+import { getSessionPath } from './session-utils';
 
 export type BookerAttemptResult = 'success' | 'failed' | 'stopped';
 
@@ -34,6 +35,7 @@ export class AccountBookerRuntime {
   constructor(
     readonly booker: AccountBooker,
     readonly context: BrowserContext,
+    private readonly account?: string,
   ) {}
 
   private async ensurePage(): Promise<Page> {
@@ -103,6 +105,16 @@ export class AccountBookerRuntime {
       await options.onCartFailure();
       return 'failed';
     });
+  }
+
+  async saveSession(): Promise<void> {
+    try {
+      const sessionPath = getSessionPath(this.account);
+      await this.context.storageState({ path: sessionPath });
+      console.log(`[Session] Saved updated session state to ${sessionPath}`);
+    } catch {
+      // Context may already be closed; swallow the error.
+    }
   }
 
   async close(): Promise<void> {
