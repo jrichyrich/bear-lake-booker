@@ -677,11 +677,6 @@ async function runAgent(spec: AgentSpec, sharedContext: BrowserContext) {
       }
 
       try {
-        const queuedAhead = booker.pendingAttemptCount;
-        if (queuedAhead > 0) {
-          console.log(`${label}Waiting for ${queuedAhead} earlier booking attempt(s) for ${account.displayName} before trying ${selection.site}.`);
-        }
-
         const bookingResult = await runtime.attemptBooking({
           account,
           agentId,
@@ -691,6 +686,8 @@ async function runAgent(spec: AgentSpec, sharedContext: BrowserContext) {
           agentLabel: label,
           headed: IS_HEADED,
           checkoutAuthMode: CHECKOUT_AUTH_MODE,
+          page,
+          skipCartInspection: true,
           onCartFailure: async () => {
             agentSummary.outcome = 'cart-failed';
             await registerCartFailure(agentId, account, selection.site);
@@ -912,7 +909,7 @@ async function launchCapture(targetSites: string[]): Promise<CaptureOutcome> {
       console.error(`[Race] No runtime found for ${spec.account.displayName}. Skipping agent ${spec.agentId}.`);
       continue;
     }
-    promises.push(sleep(i * 300).then(() => runAgent(spec, runtime.context)));
+    promises.push(sleep(i * 50).then(() => runAgent(spec, runtime.context)));
   }
 
   await Promise.all(promises);

@@ -506,7 +506,6 @@ export async function prepareOrderDetails(page: Page, agentLabel = ''): Promise<
     }
   }
 
-  await sleep(500);
 }
 
 export type CartState = {
@@ -637,14 +636,21 @@ export async function addToCart(
   account?: string,
   headed = false,
   checkoutAuthMode: CheckoutAuthMode = 'auto',
+  skipCartInspection = false,
 ): Promise<AddToCartResult> {
-  const cartBefore = await inspectCartState(
-    context,
-    `${agentLabel}[Cart Before] `,
-    account,
-    headed,
-    checkoutAuthMode,
-  );
+  const cartBefore = skipCartInspection
+    ? { siteIds: [], url: '', bodyText: '', checkoutLoginDetected: false, error: undefined }
+    : await inspectCartState(
+        context,
+        `${agentLabel}[Cart Before] `,
+        account,
+        headed,
+        checkoutAuthMode,
+      );
+  const emptyCartState: CartState = { siteIds: [], url: '', bodyText: '', checkoutLoginDetected: false, error: undefined };
+  const inspectCartAfter = skipCartInspection
+    ? async () => emptyCartState
+    : (label: string) => inspectCartState(context, label, account, headed, checkoutAuthMode);
   const clickedSelectors: string[] = [];
   let checkoutAuthEncountered = false;
 
@@ -656,7 +662,7 @@ export async function addToCart(
       if (loginResult === 'captcha-required') {
         if (checkoutAuthMode !== 'manual') {
           console.error(`${agentLabel}Checkout CAPTCHA encountered in auto mode. Re-run with --headed --checkoutAuthMode manual.`);
-          const cartAfter = await inspectCartState(context, `${agentLabel}[Cart After] `, account, headed, checkoutAuthMode);
+          const cartAfter = await inspectCartAfter(`${agentLabel}[Cart After] `);
           return {
             success: false,
             confirmationSource: 'checkout-login',
@@ -671,7 +677,7 @@ export async function addToCart(
 
         if (!headed) {
           console.error(`${agentLabel}Checkout CAPTCHA cannot be solved in headless mode. Re-run with --headed --checkoutAuthMode manual.`);
-          const cartAfter = await inspectCartState(context, `${agentLabel}[Cart After] `, account, headed, checkoutAuthMode);
+          const cartAfter = await inspectCartAfter(`${agentLabel}[Cart After] `);
           return {
             success: false,
             confirmationSource: 'checkout-login',
@@ -687,7 +693,7 @@ export async function addToCart(
         const recovered = await waitForManualCheckoutAuth(page, agentLabel);
         if (!recovered) {
           console.error(`${agentLabel}Timed out waiting for manual checkout sign-in/CAPTCHA.`);
-          const cartAfter = await inspectCartState(context, `${agentLabel}[Cart After] `, account, headed, checkoutAuthMode);
+          const cartAfter = await inspectCartAfter(`${agentLabel}[Cart After] `);
           return {
             success: false,
             confirmationSource: 'checkout-login',
@@ -700,7 +706,7 @@ export async function addToCart(
           };
         }
       } else if (loginResult === 'failed') {
-        const cartAfter = await inspectCartState(context, `${agentLabel}[Cart After] `, account, headed, checkoutAuthMode);
+        const cartAfter = await inspectCartAfter(`${agentLabel}[Cart After] `);
         return {
           success: false,
           confirmationSource: 'checkout-login',
@@ -734,13 +740,13 @@ export async function addToCart(
       if ((await btn.count()) > 0 && (await btn.isVisible())) {
         clickedSelectors.push(selector);
         console.log(`${agentLabel}Found button with selector: ${selector}. Clicking...`);
-        const nav = page.waitForNavigation({ waitUntil: 'networkidle', timeout: 15000 }).catch(() => null);
+        const nav = page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => null);
         await btn.click({ force: true });
         await nav;
 
         const currentUrl = page.url();
         if (isCartUrl(currentUrl)) {
-          const cartAfter = await inspectCartState(context, `${agentLabel}[Cart After] `, account, headed, checkoutAuthMode);
+          const cartAfter = await inspectCartAfter(`${agentLabel}[Cart After] `);
           return {
             success: true,
             confirmationSource: 'cart-url',
@@ -770,7 +776,7 @@ export async function addToCart(
       await primaryBtn.click().catch(() => {});
       await page.waitForLoadState('networkidle').catch(() => {});
       if (isCartUrl(page.url())) {
-        const cartAfter = await inspectCartState(context, `${agentLabel}[Cart After] `, account, headed, checkoutAuthMode);
+        const cartAfter = await inspectCartAfter(`${agentLabel}[Cart After] `);
         return {
           success: true,
           confirmationSource: 'cart-url',
@@ -789,7 +795,7 @@ export async function addToCart(
   const html = await page.content().catch(() => '');
   const bodyText = (await page.textContent('body')) || '';
   const checkoutLoginDetected = await isCheckoutLoginPage(page).catch(() => false);
-  const cartAfter = await inspectCartState(context, `${agentLabel}[Cart After] `, account, headed, checkoutAuthMode);
+  const cartAfter = await inspectCartAfter(`${agentLabel}[Cart After] `);
   const confirmation = determineCartConfirmation({
     finalUrl,
     bodyText,

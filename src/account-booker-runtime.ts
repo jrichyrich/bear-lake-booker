@@ -21,6 +21,8 @@ type BookerAttemptOptions = {
   agentLabel: string;
   headed: boolean;
   checkoutAuthMode: CheckoutAuthMode;
+  page: Page;
+  skipCartInspection?: boolean;
   onCartFailure: () => Promise<void>;
   onCartVerified: (siteIds: string[]) => Promise<void>;
   onCartAttemptSettled: (result: AddToCartResult) => Promise<void>;
@@ -48,63 +50,62 @@ export class AccountBookerRuntime {
   }
 
   async attemptBooking(options: BookerAttemptOptions): Promise<BookerAttemptResult> {
-    return this.booker.bookingQueue.run(async () => {
-      if (!this.booker.canAgentContinue(options.agentId)) {
-        return 'stopped';
-      }
+    if (!this.booker.canAgentContinue(options.agentId)) {
+      return 'stopped';
+    }
 
-      const page = await this.ensurePage();
-      if (page.isClosed()) {
-        return 'stopped';
-      }
+    const page = options.page;
+    if (page.isClosed()) {
+      return 'stopped';
+    }
 
-      const opened = await openSiteDetails(page, options.selection);
-      if (!opened) {
-        await options.onCartFailure();
-        return 'failed';
-      }
-
-      const readyForCart = await continueToOrderDetails(page, options.targetDate, options.stayLength);
-      if (!readyForCart) {
-        await options.onCartFailure();
-        return 'failed';
-      }
-
-      console.log(`${options.agentLabel}Reached Order Details for ${options.selection.site}. Finalizing hold...`);
-
-      const cartResult = await addToCart(
-        this.context,
-        page,
-        options.selection.site,
-        options.agentLabel,
-        options.account.account,
-        options.headed,
-        options.checkoutAuthMode,
-      );
-      await options.onCartAttemptSettled(cartResult);
-
-      if (cartResult.success) {
-        const registered = await options.onHoldSuccess();
-        await options.onCartVerified(cartResult.cartSitesAfter);
-        if (!registered) {
-          return 'failed';
-        }
-
-        const screenshotPath = `logs/cart-agent-${options.agentId}-${options.selection.site}-${Date.now()}.png`;
-        await page.screenshot({ path: screenshotPath }).catch(() => {});
-        console.log(`${options.agentLabel}✅ Final hold secured in Shopping Cart! Screenshot: ${screenshotPath}`);
-        options.onSuccessArtifact(screenshotPath);
-        return 'success';
-      }
-
-      const errorPath = `logs/fail-cart-agent-${options.agentId}-${options.selection.site}-${Date.now()}.png`;
-      await page.screenshot({ path: errorPath }).catch(() => {});
-      console.log(`${options.agentLabel}Failed to move to Shopping Cart. Screenshot: ${errorPath}`);
-      options.onFailureArtifact(errorPath);
-      await options.onCartVerified(cartResult.cartSitesAfter);
+    const opened = await openSiteDetails(page, options.selection);
+    if (!opened) {
       await options.onCartFailure();
       return 'failed';
-    });
+    }
+
+    const readyForCart = await continueToOrderDetails(page, options.targetDate, options.stayLength);
+    if (!readyForCart) {
+      await options.onCartFailure();
+      return 'failed';
+    }
+
+    console.log(`${options.agentLabel}Reached Order Details for ${options.selection.site}. Finalizing hold...`);
+
+    const cartResult = await addToCart(
+      this.context,
+      page,
+      options.selection.site,
+      options.agentLabel,
+      options.account.account,
+      options.headed,
+      options.checkoutAuthMode,
+      options.skipCartInspection,
+    );
+    await options.onCartAttemptSettled(cartResult);
+
+    if (cartResult.success) {
+      const registered = await options.onHoldSuccess();
+      await options.onCartVerified(cartResult.cartSitesAfter);
+      if (!registered) {
+        return 'failed';
+      }
+
+      const screenshotPath = `logs/cart-agent-${options.agentId}-${options.selection.site}-${Date.now()}.png`;
+      await page.screenshot({ path: screenshotPath }).catch(() => {});
+      console.log(`${options.agentLabel}✅ Final hold secured in Shopping Cart! Screenshot: ${screenshotPath}`);
+      options.onSuccessArtifact(screenshotPath);
+      return 'success';
+    }
+
+    const errorPath = `logs/fail-cart-agent-${options.agentId}-${options.selection.site}-${Date.now()}.png`;
+    await page.screenshot({ path: errorPath }).catch(() => {});
+    console.log(`${options.agentLabel}Failed to move to Shopping Cart. Screenshot: ${errorPath}`);
+    options.onFailureArtifact(errorPath);
+    await options.onCartVerified(cartResult.cartSitesAfter);
+    await options.onCartFailure();
+    return 'failed';
   }
 
   async saveSession(): Promise<void> {
