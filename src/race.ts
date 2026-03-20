@@ -688,6 +688,8 @@ async function runAgent(spec: AgentSpec, sharedContext: BrowserContext) {
           checkoutAuthMode: CHECKOUT_AUTH_MODE,
           page,
           skipCartInspection: true,
+          skipFormFilling: true,
+          skipRetries: true,
           onCartFailure: async () => {
             agentSummary.outcome = 'cart-failed';
             await registerCartFailure(agentId, account, selection.site);

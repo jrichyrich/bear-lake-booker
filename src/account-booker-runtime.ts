@@ -23,6 +23,8 @@ type BookerAttemptOptions = {
   checkoutAuthMode: CheckoutAuthMode;
   page: Page;
   skipCartInspection?: boolean;
+  skipFormFilling?: boolean;
+  skipRetries?: boolean;
   onCartFailure: () => Promise<void>;
   onCartVerified: (siteIds: string[]) => Promise<void>;
   onCartAttemptSettled: (result: AddToCartResult) => Promise<void>;
@@ -59,7 +61,7 @@ export class AccountBookerRuntime {
       return 'stopped';
     }
 
-    const opened = await openSiteDetails(page, options.selection);
+    const opened = await openSiteDetails(page, options.selection, options.skipRetries);
     if (!opened) {
       await options.onCartFailure();
       return 'failed';
@@ -82,6 +84,7 @@ export class AccountBookerRuntime {
       options.headed,
       options.checkoutAuthMode,
       options.skipCartInspection,
+      options.skipFormFilling,
     );
     await options.onCartAttemptSettled(cartResult);
 

@@ -457,8 +457,9 @@ export async function resolveTargetSites(
   );
 }
 
-export async function openSiteDetails(page: Page, selection: SiteSelection): Promise<boolean> {
-  for (let i = 0; i < MAX_RETRIES; i++) {
+export async function openSiteDetails(page: Page, selection: SiteSelection, skipRetries = false): Promise<boolean> {
+  const attempts = skipRetries ? 1 : MAX_RETRIES;
+  for (let i = 0; i < attempts; i++) {
     await page.goto(selection.detailsUrl, { waitUntil: 'domcontentloaded' });
     try {
       await page.waitForFunction(
@@ -467,7 +468,7 @@ export async function openSiteDetails(page: Page, selection: SiteSelection): Pro
       );
       return true;
     } catch {
-      await sleep(2000);
+      if (i < attempts - 1) await sleep(2000);
     }
   }
   return false;
@@ -637,6 +638,7 @@ export async function addToCart(
   headed = false,
   checkoutAuthMode: CheckoutAuthMode = 'auto',
   skipCartInspection = false,
+  skipFormFilling = false,
 ): Promise<AddToCartResult> {
   const cartBefore = skipCartInspection
     ? { siteIds: [], url: '', bodyText: '', checkoutLoginDetected: false, error: undefined }
@@ -721,7 +723,9 @@ export async function addToCart(
       await page.waitForLoadState('domcontentloaded').catch(() => {});
     }
 
-    await prepareOrderDetails(page, agentLabel);
+    if (!skipFormFilling) {
+      await prepareOrderDetails(page, agentLabel);
+    }
 
     const selectors = [
       '#btnbooknow',
