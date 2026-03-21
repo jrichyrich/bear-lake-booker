@@ -1,4 +1,4 @@
-import { type Page } from 'playwright';
+import { type BrowserContext, type Page } from 'playwright';
 import { chromium } from 'playwright-extra';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
@@ -7,7 +7,6 @@ chromium.use(StealthPlugin());
 
 import { parseArgs } from 'util';
 import * as fs from 'fs';
-import * as path from 'path';
 import { loadAvailabilitySnapshot, type AvailabilitySnapshot } from './availability-snapshots';
 import { loadArrivalShortlist, type ArrivalShortlist } from './arrival-shortlists';
 import { normalizeCliAccounts, getReadableSessionPath } from './session-utils';
@@ -27,6 +26,7 @@ const { values } = parseArgs({
     loop: { type: 'string', short: 'o', default: 'BIRCH' },
     accounts: { type: 'string' },
     launchTime: { type: 'string' },
+    tabs: { type: 'string', default: '1' },
     siteList: { type: 'string' },
     availabilitySnapshot: { type: 'string' },
     arrivalShortlist: { type: 'string' },
@@ -39,8 +39,9 @@ if (values.help) {
   console.log(`
 Bear Lake Booker — Blitz Mode
 
-Pre-loads site detail tabs, clicks "Book these Dates" on all at launch time.
-No login needed — you complete login manually after sites are grabbed.
+Pre-loads site detail tabs across multiple independent browser contexts,
+clicks "Book these Dates" on all simultaneously at launch time.
+Each context is a separate session = independent booking attempt.
 
 Usage:
   npm run blitz -- --launchTime HH:MM:SS [options]
@@ -56,6 +57,8 @@ Options:
   -d, --date <MM/DD/YYYY>         Target arrival date
   -l, --length <nights>           Length of stay
   -o, --loop <name>               Loop name (default: BIRCH)
+  --accounts <csv>                Account email(s) — session injected into each context
+  --tabs <number>                 Contexts per site (default: 1, e.g. 10 = 10 independent attempts)
   --sites <csv>                   Filter to specific site IDs
   --siteList <spec>               Filter by ranked site list
   -h, --help                      Show this help
@@ -108,6 +111,7 @@ async function main() {
 
   const targetDate = values.date ?? '';
   const stayLength = values.length ?? '';
+  const TABS_PER_SITE = Math.max(1, parseInt(values.tabs ?? '1', 10));
 
   // --- Resolve targets ---
   let targets: BlitzTarget[] = [];
@@ -123,7 +127,7 @@ async function main() {
     }
     const snapshot = loadAvailabilitySnapshot(values.availabilitySnapshot);
     targets = resolveTargetsFromSnapshot(snapshot, targetDate, Number(stayLength));
-    console.log(`Loaded ${targets.length} fully-available targets from snapshot.`);
+    console.log(`Loaded ${targets.length} targets from snapshot.`);
   } else {
     console.error('ERROR: Provide --arrivalShortlist or --availabilitySnapshot');
     process.exit(1);
@@ -156,28 +160,35 @@ async function main() {
     url: buildBlitzUrl(t.detailsUrl, resolvedDate, resolvedLength),
   }));
 
-  console.log(`\nBlitz targets (${targetUrls.length}):`);
+  const totalTabs = targetUrls.length * TABS_PER_SITE;
+  console.log(`\nBlitz plan: ${targetUrls.length} sites × ${TABS_PER_SITE} contexts = ${totalTabs} tabs`);
   targetUrls.forEach((t) => console.log(`  ${t.site} → ${t.url}`));
 
-  // --- Launch browser — use saved session if available ---
+  // --- Launch browser with N independent contexts ---
   const accounts = values.accounts ? values.accounts.split(',') : [];
   const normalizedAccounts = accounts.length > 0 ? normalizeCliAccounts(accounts) : [];
   const account = normalizedAccounts[0];
 
-  const browser = await chromium.launch({ headless: false });
   const sessionPath = account ? getReadableSessionPath(account) : null;
   const hasSession = sessionPath && fs.existsSync(sessionPath);
-  const context = hasSession
-    ? await browser.newContext({ timezoneId: 'America/Denver', storageState: sessionPath })
-    : await browser.newContext({ timezoneId: 'America/Denver' });
-  console.log(hasSession ? `Session loaded from ${sessionPath}` : 'No session — login will be required after booking.');
+  console.log(hasSession ? `\nSession: ${sessionPath}` : '\nNo session — login required after booking.');
+
+  const browser = await chromium.launch({ headless: false });
+  const contexts: BrowserContext[] = [];
+  for (let i = 0; i < TABS_PER_SITE; i++) {
+    const ctx = hasSession
+      ? await browser.newContext({ timezoneId: 'America/Denver', storageState: sessionPath })
+      : await browser.newContext({ timezoneId: 'America/Denver' });
+    contexts.push(ctx);
+  }
+  console.log(`Created ${contexts.length} independent browser contexts.`);
 
   // --- Wait until T-10s, then load pages fresh ---
   const timeParts = launchTimeStr.split(':').map(Number);
   const launchDate = new Date();
   launchDate.setHours(timeParts[0] ?? 0, timeParts[1] ?? 0, timeParts[2] ?? 0, 0);
 
-  const WARMUP_SECONDS = 10;
+  const WARMUP_SECONDS = 15;
   const warmupDate = new Date(launchDate.getTime() - WARMUP_SECONDS * 1000);
   const msUntilWarmup = warmupDate.getTime() - Date.now();
 
@@ -192,16 +203,19 @@ async function main() {
     }
   }
 
-  // --- Open all tabs fresh ---
-  console.log(`\nOpening ${targetUrls.length} tabs...`);
-  type TabEntry = { page: Page; site: string };
+  // --- Open tabs: one per context per target site ---
+  type TabEntry = { page: Page; site: string; ctxIndex: number };
   const tabs: TabEntry[] = [];
-  for (const { site, url } of targetUrls) {
-    const page = await context.newPage();
-    await page.goto(url, { waitUntil: 'domcontentloaded' });
-    const hasButton = (await page.locator('#btnbookdates').count()) > 0;
-    console.log(`  ✓ ${site} — button ${hasButton ? 'ready' : 'MISSING'}`);
-    tabs.push({ page, site });
+
+  console.log(`\nOpening ${totalTabs} tabs...`);
+  for (const [ctxIdx, ctx] of contexts.entries()) {
+    for (const { site, url } of targetUrls) {
+      const page = await ctx.newPage();
+      await page.goto(url, { waitUntil: 'domcontentloaded' });
+      const hasButton = (await page.locator('#btnbookdates').count()) > 0;
+      console.log(`  ✓ [ctx ${ctxIdx + 1}] ${site} — ${hasButton ? 'ready' : 'MISSING'}`);
+      tabs.push({ page, site, ctxIndex: ctxIdx });
+    }
   }
   console.log(`All ${tabs.length} tabs loaded.`);
 
@@ -216,10 +230,10 @@ async function main() {
   console.log('🚀 LAUNCH!\n');
 
   // --- Click "Book these Dates" on ALL tabs simultaneously ---
-  const results = await Promise.all(tabs.map(async ({ page, site }) => {
+  const results = await Promise.all(tabs.map(async ({ page, site, ctxIndex }) => {
     try {
       const btn = page.locator('#btnbookdates').first();
-      if ((await btn.count()) === 0) return { site, success: false, url: page.url(), reason: 'no-button' };
+      if ((await btn.count()) === 0) return { site, ctxIndex, success: false, url: page.url(), reason: 'no-button' };
       const nav = page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => null);
       await btn.click({ force: true });
       await nav;
@@ -227,18 +241,23 @@ async function main() {
       const url = page.url();
       const bodyText = (await page.textContent('body')) || '';
 
-      // Login page = success! Site is held, just needs manual login to claim.
+      // Cart URL = direct success (had valid session)
+      if (url.includes('viewShoppingCart') || url.includes('shoppingCart')) {
+        return { site, ctxIndex, success: true, url, reason: 'cart (direct!)' };
+      }
+
+      // Login page = success! Site is held, just needs manual login.
       const isLoginPage = url.includes('memberSignIn') || bodyText.includes('Sign In') || bodyText.includes('Email Address');
-      if (isLoginPage) return { site, success: true, url, reason: 'login-page (site held — log in to claim!)' };
+      if (isLoginPage) return { site, ctxIndex, success: true, url, reason: 'login-page (site held!)' };
 
       // Inventory gone
       if (bodyText.includes('Inventory is not available') || bodyText.includes('not available')) {
-        return { site, success: false, url, reason: 'inventory-not-available' };
+        return { site, ctxIndex, success: false, url, reason: 'inventory-not-available' };
       }
 
-      return { site, success: false, url, reason: 'unknown-page' };
+      return { site, ctxIndex, success: false, url, reason: 'unknown-page' };
     } catch (err) {
-      return { site, success: false, url: page.url(), reason: `error: ${err}` };
+      return { site, ctxIndex, success: false, url: page.url(), reason: `error: ${err}` };
     }
   }));
 
@@ -247,19 +266,23 @@ async function main() {
   const successes: string[] = [];
   for (const r of results) {
     const icon = r.success ? '✅' : '❌';
-    console.log(`  ${icon} ${r.site} — ${r.reason}`);
-    if (r.success) successes.push(r.site);
+    console.log(`  ${icon} [ctx ${r.ctxIndex + 1}] ${r.site} — ${r.reason}`);
+    if (r.success && !successes.includes(r.site)) successes.push(r.site);
   }
-  console.log(`\n${successes.length}/${results.length} sites grabbed.`);
+  console.log(`\n${successes.length} site(s) grabbed out of ${results.length} attempts.`);
 
   if (successes.length > 0) {
     console.log('\n⚠️  ACTION REQUIRED: Log in on a successful tab to complete the hold!');
-    console.log('    The site is reserved for you until you close the page or the hold expires.');
   }
 
   // --- Keep browser open for manual login ---
-  console.log('\nBrowser open — complete login manually. Close browser to exit.');
-  await context.pages()[0]?.waitForEvent('close').catch(() => {});
+  console.log('\nBrowser open — complete login manually. Close any tab to exit.');
+  await Promise.race(
+    contexts.flatMap((ctx) => ctx.pages().map((p) => p.waitForEvent('close').catch(() => {}))),
+  );
+  for (const ctx of contexts) {
+    await ctx.close().catch(() => {});
+  }
   await browser?.close().catch(() => {});
 }
 
