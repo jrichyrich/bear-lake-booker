@@ -87,7 +87,8 @@ function resolveTargetsFromSnapshot(
       if (startIdx < 0) return false;
       for (let i = startIdx; i < startIdx + stayLength; i++) {
         const day = r.days[i];
-        if (!day || (day.status !== 'A' && day.status !== 'a')) return false;
+        // A = available now, a = future available, R = reserved (becomes available at window open)
+        if (!day || day.status === 'X') return false;
       }
       return true;
     })
