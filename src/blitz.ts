@@ -188,7 +188,7 @@ async function main() {
   const launchDate = new Date();
   launchDate.setHours(timeParts[0] ?? 0, timeParts[1] ?? 0, timeParts[2] ?? 0, 0);
 
-  const WARMUP_SECONDS = 15;
+  const WARMUP_SECONDS = 60;
   const warmupDate = new Date(launchDate.getTime() - WARMUP_SECONDS * 1000);
   const msUntilWarmup = warmupDate.getTime() - Date.now();
 
