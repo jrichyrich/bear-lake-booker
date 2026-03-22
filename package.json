@@ -26,7 +26,7 @@
     "release-july15-fallback": "tsx src/release.ts --launchTime 07:59:59 -d 07/15/2026 -l 14 -o BIRCH -c 6 --book --accounts lisarichards1984@gmail.com,jrichards1981@gmail.com --siteList preferred-sites --projectionMode window-edge --headed --checkoutAuthMode manual --notificationProfile production --skipCartPreflight",
     "blitz": "tsx src/blitz.ts",
     "july21-scout": "node bin/bear-lake.js scout --date 07/21/2026 --length 8 --showMatrix",
-    "july21-blitz": "tsx src/blitz.ts --date 07/21/2026 --length 8 --launchTime 08:00:00 --tabs 10 --sites BH35,BH40,BH41 --availabilitySnapshot 'camp sites/availability/snapshots/birch-2026-07-21-2026-08-03-2026-03-21T13-48-18-265Z.json'",
+    "july22-blitz": "tsx src/blitz.ts --date 07/22/2026 --length 7 --launchTime 08:00:00 --tabs 10 --sites BH18 --availabilitySnapshot 'camp sites/availability/snapshots/birch-2026-07-22-2026-08-04-2026-03-22T13-31-04-735Z.json'",
     "checkout": "tsx src/view-cart.ts --accounts lisarichards1984,jrichards1981",
     "display-holds": "tsx src/view-cart.ts",
     "test-session": "tsx scripts/test_session.ts",
